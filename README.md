@@ -1,73 +1,177 @@
-# React + TypeScript + Vite
+# Sonhar Conforto CRM
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Aplicação completa (frontend Vite + backend Node/Express + Postgres via Prisma) para operação do CRM Sonhar Conforto: pipeline de vendas, estoque, clientes, assistências, entregas e financeiro.
 
-Currently, two official plugins are available:
+## Requisitos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 20+
+- npm 10+
+- PostgreSQL 16 (ou container Docker compatível)
 
-## React Compiler
+## Estrutura
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+.
+├── server        # API (Express + Prisma)
+├── src           # Frontend React/Vite
+├── public        # Assets do front
+├── dist          # Build do front (gerado)
+└── README.md
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Variáveis de ambiente
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Frontend: `.env.local` (ou `.env`) – exemplo em `.env.example`
+  ```
+  VITE_API_URL=https://seu-dominio/api
+  ```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- Backend: `server/.env` – exemplo em `server/.env.example`
+  ```
+  DATABASE_URL="postgresql://USER:PASS@HOST:PORT/sonhar_conforto?schema=public"
+  JWT_SECRET="chave-bem-grande"
+  PORT=3333
+  ```
+
+## Banco de dados
+
+```bash
+cd server
+# cria tabelas
+npm run prisma:migrate
+# gera seed com usuário admin (kemimarcondesblaze@gmail.com / Kema3030!)
+npm run prisma:seed
 ```
+
+Para ambiente local você pode usar Docker:
+
+```bash
+docker run -d --name sonhar-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=sonhar_conforto \
+  -p 6543:5432 postgres:16
+
+# .env deve apontar para porta 6543
+DATABASE_URL="postgresql://postgres:postgres@localhost:6543/sonhar_conforto?schema=public"
+```
+
+## Rodando localmente
+
+Frontend:
+```bash
+npm install
+npm run dev
+```
+
+Backend:
+```bash
+cd server
+npm install
+npm run dev
+```
+
+## Build de produção
+
+Frontend:
+```bash
+npm run build        # gera dist/
+```
+
+Backend:
+```bash
+cd server
+npm run build        # gera server/dist
+npm run start        # usa dist/index.js
+```
+
+## Deploy na VPS (Ubuntu 24.04 exemplo)
+
+```bash
+# Dependências básicas
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl build-essential ufw
+
+# Node 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# PM2 para gerenciar processos
+sudo npm install -g pm2
+
+# Clonar projeto
+git clone https://seu-repo.git sonhar-conforto
+cd sonhar-conforto
+
+# Front
+npm install
+cp .env.example .env
+echo "VITE_API_URL=https://api.seu-dominio/api" > .env
+npm run build
+
+# Backend
+cd server
+npm install
+cp .env.example .env
+# editar .env com URL do Postgres e JWT_SECRET forte
+npm run prisma:migrate
+npm run prisma:seed
+npm run build
+
+# Start API com PM2
+pm2 start dist/index.js --name sonhar-api
+pm2 save
+pm2 startup systemd   # segue instruções do pm2
+```
+
+### Nginx (proxy e front estatico)
+
+```bash
+sudo apt install nginx
+
+# /etc/nginx/sites-available/sonhar.conf
+server {
+  listen 80;
+  server_name sonharconforto.com.br www.sonharconforto.com.br;
+
+  root /var/www/sonhar-conforto/dist;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:3333/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_cache_bypass $http_upgrade;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+
+sudo ln -s /etc/nginx/sites-available/sonhar.conf /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Certifique-se de copiar a pasta `dist/` para `/var/www/sonhar-conforto/dist` (ou altere o caminho no `root`). Você pode usar `rsync` ou simples `cp`.
+
+### Pós-deploy
+
+- `pm2 status` para checar a API.
+- `journalctl -u nginx -f` para logs do Nginx.
+- Acesse `https://sonharconforto.com.br` e faça login com o admin seed para criar novos usuários.
+
+## Scripts úteis
+
+- `npm run prisma:migrate` / `:seed` – manter schema sincronizado.
+- `npm run build` (front) / `npm run build && npm run start` (server) – builds de produção.
+- `pm2 restart sonhar-api` – reinicia backend após atualizar código.
+
+## Suporte rápido
+
+- Usuário admin seed: `kemimarcondesblaze@gmail.com` / `Kema3030!`
+- Troque a senha no banco assim que subir em produção!
+
+Com isso o projeto fica pronto para ser enviado via git/rsync para a VPS. Basta seguir os comandos acima que o domínio apontado já serve o front + API.
