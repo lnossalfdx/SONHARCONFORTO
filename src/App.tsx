@@ -1646,7 +1646,14 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         }),
       })
       if (!response.ok) {
-        throw new Error('Não foi possível registrar a saída financeira.')
+        let message = 'Não foi possível registrar a saída financeira.'
+        try {
+          const payload = await response.json()
+          if (payload?.message) message = payload.message
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error(message)
       }
       setExpenseForm({
         description: '',

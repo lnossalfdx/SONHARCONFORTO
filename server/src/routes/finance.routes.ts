@@ -4,6 +4,7 @@ import { prisma } from '../config/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { roleGuard } from '../middleware/roleGuard.js'
 import type { PaymentMethod } from '@prisma/client'
+import { ZodError } from 'zod'
 
 const router = Router()
 router.use(authMiddleware)
@@ -172,7 +173,16 @@ router.get('/expenses', roleGuard('admin'), async (request, response) => {
 })
 
 router.post('/expenses', roleGuard('admin'), async (request, response) => {
-  const payload = expenseSchema.parse(request.body)
+  let payload
+  try {
+    payload = expenseSchema.parse(request.body)
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const issue = error.issues[0]
+      return response.status(400).json({ message: issue?.message ?? 'Dados inválidos.' })
+    }
+    throw error
+  }
   const expense = await prisma.financeExpense.create({
     data: {
       description: payload.description.trim(),
