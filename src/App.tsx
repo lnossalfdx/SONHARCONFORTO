@@ -35,6 +35,7 @@ type StockItem = {
   quantity: number
   reserved: number
   price: number
+  factoryCost?: number
   imageUrl: string
 }
 
@@ -132,6 +133,19 @@ type FinanceSummary = {
   pending: number
   paymentsByMethod: Record<string, number>
   monthlySeries: Record<string, number>
+  expensesTotal: number
+  expensesByMethod: Record<string, number>
+  netRevenue: number
+}
+
+type FinanceExpense = {
+  id: string
+  description: string
+  amount: number
+  date: string
+  method: PaymentMethod
+  note: string
+  createdBy?: string
 }
 
 type MonthlyGoal = {
@@ -207,6 +221,7 @@ const normalizeStockItem = (product: any): StockItem => ({
   quantity: product.quantity ?? 0,
   reserved: product.reserved ?? 0,
   price: product.price ?? 0,
+  factoryCost: typeof product.factoryCost === 'number' ? product.factoryCost : undefined,
   imageUrl: product.imageUrl ?? DEFAULT_PRODUCT_IMAGE,
 })
 
@@ -217,6 +232,16 @@ const normalizeMovement = (movement: any): StockMovement => ({
   amount: movement.amount ?? 0,
   note: movement.note ?? '',
   createdAt: movement.createdAt ?? new Date().toISOString(),
+})
+
+const normalizeExpense = (expense: any): FinanceExpense => ({
+  id: expense.id,
+  description: expense.description ?? '',
+  amount: expense.amount ?? 0,
+  date: expense.date ?? new Date().toISOString(),
+  method: mapPaymentMethodFromApi(expense.method) as PaymentMethod,
+  note: expense.note ?? '',
+  createdBy: expense.createdBy?.name ?? '',
 })
 
 const normalizeAssistance = (assistance: any): Assistance => ({
@@ -306,6 +331,7 @@ type InventoryFormState = {
   newProductName: string
   newProductSku: string
   newProductPrice: string
+  newProductFactoryCost: string
   newProductImage: string
 }
 
@@ -318,6 +344,7 @@ const createInventoryFormState = (productId: string): InventoryFormState => ({
   newProductName: '',
   newProductSku: '',
   newProductPrice: '',
+  newProductFactoryCost: '',
   newProductImage: '',
 })
 
@@ -418,21 +445,33 @@ function App() {
   const [saleDateEnd, setSaleDateEnd] = useState('')
   const [salePaymentFilter, setSalePaymentFilter] = useState<'all' | PaymentMethod>('all')
   const [saleMinValue, setSaleMinValue] = useState('')
-  const [financeDateStart, setFinanceDateStart] = useState('')
-  const [financeDateEnd, setFinanceDateEnd] = useState('')
-  const [financePaymentFilter, setFinancePaymentFilter] = useState<'all' | PaymentMethod>('all')
-  const [financeMinValue, setFinanceMinValue] = useState('')
-  const [financeMaxValue, setFinanceMaxValue] = useState('')
-  const [financeClientFilter, setFinanceClientFilter] = useState('all')
+const [financeDateStart, setFinanceDateStart] = useState('')
+const [financeDateEnd, setFinanceDateEnd] = useState('')
+const [financePaymentFilter, setFinancePaymentFilter] = useState<'all' | PaymentMethod>('all')
+const [financeMinValue, setFinanceMinValue] = useState('')
+const [financeMaxValue, setFinanceMaxValue] = useState('')
+const [financeClientFilter, setFinanceClientFilter] = useState('all')
   const [monthlyGoal, setMonthlyGoal] = useState<MonthlyGoal | null>(null)
   const [monthlyGoalLoading, setMonthlyGoalLoading] = useState(false)
   const [monthlyGoalError, setMonthlyGoalError] = useState<string | null>(null)
   const [monthlyGoalFormValue, setMonthlyGoalFormValue] = useState(0)
-  const [monthlyGoalSaving, setMonthlyGoalSaving] = useState(false)
-  const [monthlyGoalNotice, setMonthlyGoalNotice] = useState<string | null>(null)
-  const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null)
-  const [financeSummaryLoading, setFinanceSummaryLoading] = useState(false)
-  const [financeSummaryError, setFinanceSummaryError] = useState<string | null>(null)
+const [monthlyGoalSaving, setMonthlyGoalSaving] = useState(false)
+const [monthlyGoalNotice, setMonthlyGoalNotice] = useState<string | null>(null)
+const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null)
+const [financeSummaryLoading, setFinanceSummaryLoading] = useState(false)
+const [financeSummaryError, setFinanceSummaryError] = useState<string | null>(null)
+const [financeExpenses, setFinanceExpenses] = useState<FinanceExpense[]>([])
+const [financeExpensesLoading, setFinanceExpensesLoading] = useState(false)
+const [financeExpensesError, setFinanceExpensesError] = useState<string | null>(null)
+const [expenseForm, setExpenseForm] = useState({
+  description: '',
+  amount: '',
+  date: new Date().toISOString().slice(0, 10),
+  method: 'PIX' as PaymentMethod,
+  note: '',
+})
+const [expenseSubmitLoading, setExpenseSubmitLoading] = useState(false)
+const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null)
   const [stockExploreTerm, setStockExploreTerm] = useState('')
   const [globalSearch, setGlobalSearch] = useState('')
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'pendente' | 'entregue'>('all')
@@ -699,6 +738,7 @@ function App() {
       const params = new URLSearchParams()
       if (financeDateStart) params.append('start', financeDateStart)
       if (financeDateEnd) params.append('end', financeDateEnd)
+       if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
       const query = params.toString()
       const response = await fetch(`${API_BASE_URL}/finance/summary${query ? `?${query}` : ''}`, {
         headers: getAuthHeaders(false),
@@ -715,7 +755,7 @@ function App() {
     } finally {
       setFinanceSummaryLoading(false)
     }
-  }, [authToken, financeDateStart, financeDateEnd, isAdmin])
+  }, [authToken, financeDateStart, financeDateEnd, financePaymentFilter, isAdmin])
 
   useEffect(() => {
     if (!authToken || !isAdmin) {
@@ -724,7 +764,52 @@ function App() {
       return
     }
     fetchFinanceSummaryFromApi()
-  }, [authToken, isAdmin, financeDateStart, financeDateEnd, fetchFinanceSummaryFromApi, sales.length])
+  }, [
+    authToken,
+    isAdmin,
+    financeDateStart,
+    financeDateEnd,
+    financePaymentFilter,
+    fetchFinanceSummaryFromApi,
+    sales.length,
+  ])
+
+  const fetchFinanceExpensesFromApi = useCallback(async () => {
+    if (!authToken || !isAdmin) return
+    setFinanceExpensesLoading(true)
+    setFinanceExpensesError(null)
+    try {
+      const params = new URLSearchParams()
+      if (financeDateStart) params.append('start', financeDateStart)
+      if (financeDateEnd) params.append('end', financeDateEnd)
+      if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
+      const query = params.toString()
+      const response = await fetch(`${API_BASE_URL}/finance/expenses${query ? `?${query}` : ''}`, {
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível carregar as saídas cadastradas.')
+      }
+      const data = await response.json()
+      const normalized = Array.isArray(data) ? data.map((expense: any) => normalizeExpense(expense)) : []
+      setFinanceExpenses(normalized)
+    } catch (error) {
+      console.error(error)
+      setFinanceExpenses([])
+      setFinanceExpensesError(error instanceof Error ? error.message : 'Falha ao carregar saídas financeiras.')
+    } finally {
+      setFinanceExpensesLoading(false)
+    }
+  }, [authToken, financeDateStart, financeDateEnd, financePaymentFilter, isAdmin])
+
+  useEffect(() => {
+    if (!authToken || !isAdmin) {
+      setFinanceExpenses([])
+      setFinanceExpensesError(null)
+      return
+    }
+    fetchFinanceExpensesFromApi()
+  }, [authToken, isAdmin, financeDateStart, financeDateEnd, financePaymentFilter, fetchFinanceExpensesFromApi])
 
   const fetchMonthlyGoalFromApi = useCallback(async () => {
     if (!authToken) return
@@ -1530,6 +1615,55 @@ function App() {
     }
   }
 
+  const handleCreateExpense = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setExpenseSubmitError(null)
+    if (!authToken) {
+      setExpenseSubmitError('Sessão expirada. Faça login novamente.')
+      return
+    }
+    const description = expenseForm.description.trim()
+    const amountNumber = Number(expenseForm.amount)
+    if (!description) {
+      setExpenseSubmitError('Descreva o que foi pago.')
+      return
+    }
+    if (!amountNumber || amountNumber <= 0) {
+      setExpenseSubmitError('Informe o valor da saída.')
+      return
+    }
+    setExpenseSubmitLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/finance/expenses`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          description,
+          amount: amountNumber,
+          date: new Date(expenseForm.date).toISOString(),
+          method: expenseForm.method,
+          note: expenseForm.note.trim() || undefined,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível registrar a saída financeira.')
+      }
+      setExpenseForm({
+        description: '',
+        amount: '',
+        date: new Date().toISOString().slice(0, 10),
+        method: expenseForm.method,
+        note: '',
+      })
+      await Promise.all([fetchFinanceExpensesFromApi(), fetchFinanceSummaryFromApi()])
+    } catch (error) {
+      console.error(error)
+      setExpenseSubmitError(error instanceof Error ? error.message : 'Erro ao cadastrar saída.')
+    } finally {
+      setExpenseSubmitLoading(false)
+    }
+  }
+
   const handleInventoryMovement = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!canManageStock) return
@@ -1554,10 +1688,12 @@ function App() {
         const skuFromForm = inventoryForm.newProductSku.trim()
         const skuFallback = skuFromForm || `SKU-${Math.floor(Math.random() * 90000 + 10000)}`
         const priceNumber = Number(inventoryForm.newProductPrice)
+        const factoryCostNumber = Number(inventoryForm.newProductFactoryCost)
         const payload = {
           name,
           sku: skuFallback,
           price: Number.isNaN(priceNumber) ? 0 : Math.max(0, priceNumber),
+          factoryCost: Number.isNaN(factoryCostNumber) ? 0 : Math.max(0, factoryCostNumber),
           quantity: amount,
           imageUrl: inventoryForm.newProductImage || undefined,
         }
@@ -3126,6 +3262,14 @@ function App() {
                       <span>Valor unitário</span>
                       <strong>{formatCurrency(item.price)}</strong>
                     </div>
+                    {isAdmin && (
+                      <div>
+                        <span>Custo fábrica</span>
+                        <strong>
+                          {item.factoryCost !== undefined ? formatCurrency(item.factoryCost) : '—'}
+                        </strong>
+                      </div>
+                    )}
                   </div>
                   <div className="stock-card-bar">
                     <div className="meter">
@@ -3251,6 +3395,19 @@ function App() {
                               placeholder="8900"
                             />
                           </label>
+                          <label>
+                            Custo fábrica (R$)
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={inventoryForm.newProductFactoryCost}
+                              onChange={(event) =>
+                                setInventoryForm((prev) => ({ ...prev, newProductFactoryCost: event.target.value }))
+                              }
+                              placeholder="4500"
+                            />
+                          </label>
                         </>
                       ) : (
                       <label>
@@ -3336,6 +3493,16 @@ function App() {
                             <span>Valor</span>
                             <strong>{formatCurrency(selectedInventoryProduct.price)}</strong>
                           </div>
+                          {isAdmin && (
+                            <div>
+                              <span>Custo fábrica</span>
+                              <strong>
+                                {selectedInventoryProduct.factoryCost !== undefined
+                                  ? formatCurrency(selectedInventoryProduct.factoryCost)
+                                  : '—'}
+                              </strong>
+                            </div>
+                          )}
                         </div>
                         <p className="preview-note">
                           {selectedInventoryProduct.quantity > 0
@@ -3497,6 +3664,20 @@ function App() {
       financeSummary?.delivered ?? paymentFilteredSales.filter((sale) => sale.status === 'entregue').length
     const summaryPending =
       financeSummary?.pending ?? paymentFilteredSales.filter((sale) => sale.status === 'pendente').length
+    const computedExpenseTotals = financeExpenses.reduce<Record<string, number>>((acc, expense) => {
+      acc[expense.method] = (acc[expense.method] ?? 0) + expense.amount
+      return acc
+    }, {})
+    const summaryExpensesAmount =
+      financeSummary?.expensesTotal ?? financeExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+    const summaryExpenseBreakdown = financeSummary
+      ? Object.entries(financeSummary.expensesByMethod).reduce<Record<string, number>>((acc, [method, value]) => {
+          const label = paymentMethodLabelFromKey(method)
+          acc[label] = (acc[label] ?? 0) + value
+          return acc
+        }, {})
+      : computedExpenseTotals
+    const summaryNetRevenue = financeSummary?.netRevenue ?? summaryRevenue - summaryExpensesAmount
     const salesByClient = paymentFilteredSales.reduce<Record<string, number>>((acc, sale) => {
       acc[sale.clientId] = (acc[sale.clientId] ?? 0) + sale.value
       return acc
@@ -3569,6 +3750,26 @@ function App() {
                   <strong>{summaryPending}</strong>
                 </div>
               </div>
+            </div>
+            <div className="metric-card">
+              <p>Saídas registradas</p>
+              <h3>{formatCurrency(summaryExpensesAmount)}</h3>
+              <div className="metric-bar">
+                {Object.keys(summaryExpenseBreakdown).length === 0 && (
+                  <span className="muted">Sem saídas no filtro atual.</span>
+                )}
+                {Object.entries(summaryExpenseBreakdown).map(([label, value]) => (
+                  <div key={label}>
+                    <strong>{label}</strong>
+                    <span>{formatCurrency(value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="metric-card">
+              <p>Resultado líquido</p>
+              <h3>{formatCurrency(summaryNetRevenue)}</h3>
+              <span>Entradas - saídas considerando o filtro atual.</span>
             </div>
             <div className="metric-card">
               <p>Top clientes</p>
@@ -3647,6 +3848,103 @@ function App() {
                 onChange={(event) => setFinanceMaxValue(event.target.value)}
               />
             </label>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Saídas financeiras</p>
+              <h2>Controle despesas e custos</h2>
+            </div>
+            <div className="section-actions">
+              {financeExpensesLoading && <span className="chip ghost">Carregando…</span>}
+              {financeExpensesError && <span className="chip alert">{financeExpensesError}</span>}
+              <span className="chip ghost">{financeExpenses.length} registros</span>
+            </div>
+          </div>
+          <form className="filter-row finance expense-form" onSubmit={handleCreateExpense}>
+            <label>
+              Descrição
+              <input
+                value={expenseForm.description}
+                onChange={(event) => setExpenseForm((prev) => ({ ...prev, description: event.target.value }))}
+                placeholder="Ex: Frete transportadora"
+              />
+            </label>
+            <label>
+              Valor (R$)
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={expenseForm.amount}
+                onChange={(event) => setExpenseForm((prev) => ({ ...prev, amount: event.target.value }))}
+                placeholder="350"
+              />
+            </label>
+            <label>
+              Data
+              <input
+                type="date"
+                value={expenseForm.date}
+                onChange={(event) => setExpenseForm((prev) => ({ ...prev, date: event.target.value }))}
+              />
+            </label>
+            <label>
+              Pagamento
+              <select
+                value={expenseForm.method}
+                onChange={(event) => setExpenseForm((prev) => ({ ...prev, method: event.target.value as PaymentMethod }))}
+              >
+                {paymentMethods.map((method) => (
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="note-field">
+              Observação
+              <input
+                value={expenseForm.note}
+                onChange={(event) => setExpenseForm((prev) => ({ ...prev, note: event.target.value }))}
+                placeholder="NF, responsável, centro de custo..."
+              />
+            </label>
+            <button className="primary" type="submit" disabled={expenseSubmitLoading}>
+              {expenseSubmitLoading ? 'Registrando...' : 'Registrar saída'}
+            </button>
+          </form>
+          {expenseSubmitError && <p className="login-error">{expenseSubmitError}</p>}
+          <div className="finance-table">
+            {financeExpenses.map((expense) => (
+              <div className="finance-row expense" key={expense.id}>
+                <div>
+                  <p className="sale-id">{expense.description}</p>
+                  <p className="hero-sub">{expense.createdBy || 'Registro manual'}</p>
+                </div>
+                <div>
+                  <span>Valor</span>
+                  <strong className="danger">{formatCurrency(expense.amount)}</strong>
+                </div>
+                <div>
+                  <span>Data</span>
+                  <strong>{new Date(expense.date).toLocaleDateString('pt-BR')}</strong>
+                </div>
+                <div>
+                  <span>Pagamento</span>
+                  <strong>{expense.method}</strong>
+                </div>
+                <div className="finance-payments">
+                  <span>Observações</span>
+                  <p>{expense.note || '—'}</p>
+                </div>
+              </div>
+            ))}
+            {!financeExpenses.length && !financeExpensesLoading && (
+              <p className="empty-state">Nenhuma saída cadastrada com o filtro atual.</p>
+            )}
           </div>
         </section>
 

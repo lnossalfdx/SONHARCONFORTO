@@ -6,6 +6,13 @@ import { roleGuard } from '../middleware/roleGuard.js'
 
 const router = Router()
 
+const sanitizeProductFactoryCost = <T extends { factoryCost?: number }>(product: T, expose: boolean) => {
+  if (!product || expose) return product
+  const clone: T & { factoryCost?: number } = { ...product }
+  delete clone.factoryCost
+  return clone
+}
+
 const productSchema = z.object({
   name: z.string().trim().min(2, 'Informe o nome do produto.'),
   sku: z.preprocess(
@@ -17,6 +24,7 @@ const productSchema = z.object({
     z.string().min(2).optional(),
   ),
   price: z.number().nonnegative(),
+  factoryCost: z.number().nonnegative().default(0),
   quantity: z.number().int().nonnegative().default(0),
   imageUrl: z.string().url().optional(),
 })
@@ -24,6 +32,7 @@ const productSchema = z.object({
 const generateSku = () => `SKU-${Math.floor(Math.random() * 90000 + 10000)}`
 
 router.get('/', authMiddleware, async (request, response) => {
+  const isAdmin = request.user?.role === 'admin'
   const { search } = request.query
   const products = await prisma.product.findMany({
     where: search
@@ -36,7 +45,8 @@ router.get('/', authMiddleware, async (request, response) => {
       : undefined,
     orderBy: { createdAt: 'desc' },
   })
-  return response.json(products)
+  const payload = isAdmin ? products : products.map((product) => sanitizeProductFactoryCost(product, false))
+  return response.json(payload)
 })
 
 router.post('/', authMiddleware, roleGuard('admin'), async (request, response) => {
@@ -86,13 +96,20 @@ router.post('/:id/movements', authMiddleware, roleGuard('admin'), async (request
 })
 
 router.get('/movements', authMiddleware, async (request, response) => {
+  const isAdmin = request.user?.role === 'admin'
   const { type } = request.query
   const movements = await prisma.stockMovement.findMany({
     where: type ? { type: type === 'entrada' ? 'entrada' : 'saida' } : undefined,
     include: { product: true },
     orderBy: { createdAt: 'desc' },
   })
-  return response.json(movements)
+  const payload = isAdmin
+    ? movements
+    : movements.map((movement) => ({
+        ...movement,
+        product: movement.product ? sanitizeProductFactoryCost(movement.product, false) : movement.product,
+      }))
+  return response.json(payload)
 })
 
 router.delete('/:id', authMiddleware, roleGuard('admin'), async (request, response) => {
