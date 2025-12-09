@@ -2506,6 +2506,16 @@ body {
 .assistance-modal {
   width: min(820px, 100%);
   padding: 28px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.assist-modal-body {
+  margin-top: 18px;
+  overflow-y: auto;
+  padding-right: 6px;
+  flex: 1;
 }
 
 .assistance-modal-head .hero-sub {

@@ -5041,62 +5041,64 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                     Fechar
                   </button>
                 </div>
-                <div className="assist-modal-summary">
-                  <div>
-                    <span>Venda vinculada</span>
-                    <strong>{assistanceModal.saleCode || modalSale?.id || '-'}</strong>
-                    <small>{modalSale ? new Date(modalSale.createdAt).toLocaleDateString('pt-BR') : 'Sem data'}</small>
+                <div className="assist-modal-body">
+                  <div className="assist-modal-summary">
+                    <div>
+                      <span>Venda vinculada</span>
+                      <strong>{assistanceModal.saleCode || modalSale?.id || '-'}</strong>
+                      <small>{modalSale ? new Date(modalSale.createdAt).toLocaleDateString('pt-BR') : 'Sem data'}</small>
+                    </div>
+                    <div>
+                      <span>Status</span>
+                      <strong className={`status-pill ${assistanceModal.status}`}>
+                        {assistanceModal.status === 'concluida' ? 'Concluída' : 'Aberta'}
+                      </strong>
+                      <small>Aberta em {createdLabel}</small>
+                    </div>
+                    <div>
+                      <span>Responsável</span>
+                      <strong>{assistanceModal.owner}</strong>
+                      <small>Gestão do CRM</small>
+                    </div>
+                    <div>
+                      <span>Entrega prevista</span>
+                      <strong>{expectedLabel}</strong>
+                      <small>{assistanceModal.status === 'concluida' ? 'Processo encerrado' : 'Em acompanhamento'}</small>
+                    </div>
                   </div>
-                  <div>
-                    <span>Status</span>
-                    <strong className={`status-pill ${assistanceModal.status}`}>
-                      {assistanceModal.status === 'concluida' ? 'Concluída' : 'Aberta'}
-                    </strong>
-                    <small>Aberta em {createdLabel}</small>
+                  <div className="assist-modal-panels">
+                    <article className="assist-modal-panel">
+                      <span className="field-label">Defeito relatado</span>
+                      <p>{assistanceModal.defectDescription}</p>
+                    </article>
+                    <article className="assist-modal-panel">
+                      <span className="field-label">Resposta da fábrica</span>
+                      <p>{assistanceModal.factoryResponse || 'Sem retorno registrado por enquanto.'}</p>
+                    </article>
                   </div>
-                  <div>
-                    <span>Responsável</span>
-                    <strong>{assistanceModal.owner}</strong>
-                    <small>Gestão do CRM</small>
+                  <div className="assist-modal-panels">
+                    <article className="assist-modal-panel">
+                      <span className="field-label">Produto</span>
+                      <p>{modalProduct ? `${modalProduct.name} · ${modalProduct.sku}` : 'Removido do catálogo.'}</p>
+                    </article>
+                    <article className="assist-modal-panel">
+                      <span className="field-label">Timeline</span>
+                      <p>
+                        Aberta em {createdLabel}.{' '}
+                        {assistanceModal.status === 'concluida' ? 'Assistência finalizada.' : 'Acompanhando retorno da fábrica.'}
+                      </p>
+                    </article>
                   </div>
-                  <div>
-                    <span>Entrega prevista</span>
-                    <strong>{expectedLabel}</strong>
-                    <small>{assistanceModal.status === 'concluida' ? 'Processo encerrado' : 'Em acompanhamento'}</small>
-                  </div>
+                  {assistanceModal.photos.length > 0 ? (
+                    <div className="assist-modal-photos">
+                      {assistanceModal.photos.map((photo, index) => (
+                        <img src={photo} key={index} alt={`Foto ${index + 1}`} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="field-note">Nenhuma foto anexada a este atendimento.</p>
+                  )}
                 </div>
-                <div className="assist-modal-panels">
-                  <article className="assist-modal-panel">
-                    <span className="field-label">Defeito relatado</span>
-                    <p>{assistanceModal.defectDescription}</p>
-                  </article>
-                  <article className="assist-modal-panel">
-                    <span className="field-label">Resposta da fábrica</span>
-                    <p>{assistanceModal.factoryResponse || 'Sem retorno registrado por enquanto.'}</p>
-                  </article>
-                </div>
-                <div className="assist-modal-panels">
-                  <article className="assist-modal-panel">
-                    <span className="field-label">Produto</span>
-                    <p>{modalProduct ? `${modalProduct.name} · ${modalProduct.sku}` : 'Removido do catálogo.'}</p>
-                  </article>
-                  <article className="assist-modal-panel">
-                    <span className="field-label">Timeline</span>
-                    <p>
-                      Aberta em {createdLabel}.{' '}
-                      {assistanceModal.status === 'concluida' ? 'Assistência finalizada.' : 'Acompanhando retorno da fábrica.'}
-                    </p>
-                  </article>
-                </div>
-                {assistanceModal.photos.length > 0 ? (
-                  <div className="assist-modal-photos">
-                    {assistanceModal.photos.map((photo, index) => (
-                      <img src={photo} key={index} alt={`Foto ${index + 1}`} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="field-note">Nenhuma foto anexada a este atendimento.</p>
-                )}
               </div>
             </div>
           )
