@@ -44,7 +44,7 @@ const normalizeMethod = (method: string): PaymentMethod => {
   }
 }
 
-const randomPublicId = () => `VEN-${Math.floor(Math.random() * 900 + 100)}`
+const formatPublicId = (sequence: number) => `VEN-${String(sequence).padStart(4, '0')}`
 
 router.get('/', async (request, response) => {
   const { status, clientId, search, start, end } = request.query
@@ -102,14 +102,20 @@ router.post('/', async (request, response) => {
     return response.status(400).json({ message: 'Pagamentos não conferem com o total do pedido.' })
   }
 
-  const publicId = randomPublicId()
-
   const sale = await prisma.$transaction(async (tx) => {
+    const counter = await tx.saleCounter.upsert({
+      where: { id: 1 },
+      update: { current: { increment: 1 } },
+      create: { id: 1, current: 1 },
+      select: { current: true },
+    })
+    const sequenceValue = counter.current
     const createdSale = await tx.sale.create({
       data: {
-        publicId,
-        clientId: payload.clientId,
-        createdById: request.user?.id,
+        sequence: sequenceValue,
+        publicId: formatPublicId(sequenceValue),
+        client: { connect: { id: payload.clientId } },
+        createdBy: request.user ? { connect: { id: request.user.id } } : undefined,
         discount: payload.discount,
         note: payload.note,
         deliveryDate: payload.deliveryDate ? new Date(payload.deliveryDate) : null,

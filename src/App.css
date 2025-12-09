@@ -3108,6 +3108,73 @@ button:hover {
   color: #5e6a8c;
 }
 
+.goal-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+  align-items: center;
+}
+
+.goal-progress .goal-values {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 8px 0;
+  color: #050f2c;
+}
+
+.goal-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: #ecf0fb;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.goal-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #008ed7, #d4af37);
+  transition: width 0.4s ease;
+}
+
+.goal-percent {
+  font-size: 14px;
+  color: #5e6a8c;
+}
+
+.goal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.goal-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #5e6a8c;
+  gap: 6px;
+}
+
+.goal-form input {
+  border-radius: 10px;
+  border: 1px solid #dce3f5;
+  padding: 10px 12px;
+  font-size: 15px;
+}
+
+.goal-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.goal-head .chip {
+  align-self: center;
+}
+
 @keyframes cardFloat {
   0% {
     transform: rotateY(-6deg) rotateX(4deg) translateY(0px);

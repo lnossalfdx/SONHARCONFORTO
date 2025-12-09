@@ -134,6 +134,13 @@ type FinanceSummary = {
   monthlySeries: Record<string, number>
 }
 
+type MonthlyGoal = {
+  year: number
+  month: number
+  target: number
+  progress: number
+}
+
 const normalizeClient = (client: any): Client => ({
   id: client.id,
   name: client.name ?? '',
@@ -288,7 +295,7 @@ const initialAssistances: Assistance[] = []
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
 
-const generateSaleId = () => `VEN-${Math.floor(Math.random() * 900 + 100)}`
+const generateSaleId = () => 'VEN-0000'
 
 type InventoryFormState = {
   productId: string
@@ -417,6 +424,12 @@ function App() {
   const [financeMinValue, setFinanceMinValue] = useState('')
   const [financeMaxValue, setFinanceMaxValue] = useState('')
   const [financeClientFilter, setFinanceClientFilter] = useState('all')
+  const [monthlyGoal, setMonthlyGoal] = useState<MonthlyGoal | null>(null)
+  const [monthlyGoalLoading, setMonthlyGoalLoading] = useState(false)
+  const [monthlyGoalError, setMonthlyGoalError] = useState<string | null>(null)
+  const [monthlyGoalFormValue, setMonthlyGoalFormValue] = useState(0)
+  const [monthlyGoalSaving, setMonthlyGoalSaving] = useState(false)
+  const [monthlyGoalNotice, setMonthlyGoalNotice] = useState<string | null>(null)
   const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null)
   const [financeSummaryLoading, setFinanceSummaryLoading] = useState(false)
   const [financeSummaryError, setFinanceSummaryError] = useState<string | null>(null)
@@ -712,6 +725,39 @@ function App() {
     }
     fetchFinanceSummaryFromApi()
   }, [authToken, isAdmin, financeDateStart, financeDateEnd, fetchFinanceSummaryFromApi, sales.length])
+
+  const fetchMonthlyGoalFromApi = useCallback(async () => {
+    if (!authToken) return
+    setMonthlyGoalLoading(true)
+    setMonthlyGoalError(null)
+    try {
+      const response = await fetch(`${API_BASE_URL}/finance/goal`, {
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível carregar a meta do mês.')
+      }
+      const data = await response.json()
+      setMonthlyGoal(data)
+      setMonthlyGoalFormValue(data.target ?? 0)
+    } catch (error) {
+      console.error(error)
+      setMonthlyGoal(null)
+      setMonthlyGoalError(error instanceof Error ? error.message : 'Falha ao carregar meta do mês.')
+    } finally {
+      setMonthlyGoalLoading(false)
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    if (!authToken) {
+      setMonthlyGoal(null)
+      setMonthlyGoalError(null)
+      setMonthlyGoalFormValue(0)
+      return
+    }
+    fetchMonthlyGoalFromApi()
+  }, [authToken, sales.length, fetchMonthlyGoalFromApi])
 
   useEffect(() => {
     if (userManagerOpen && isAdmin) {
@@ -1593,6 +1639,32 @@ function App() {
     }))
   }
 
+  const handleSaveMonthlyGoal = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!isAdmin) return
+    setMonthlyGoalSaving(true)
+    setMonthlyGoalNotice(null)
+    setMonthlyGoalError(null)
+    try {
+      const response = await fetch(`${API_BASE_URL}/finance/goal`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ target: monthlyGoalFormValue }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null)
+        throw new Error(errorBody?.message ?? 'Não foi possível atualizar a meta.')
+      }
+      await fetchMonthlyGoalFromApi()
+      setMonthlyGoalNotice('Meta atualizada com sucesso.')
+    } catch (error) {
+      console.error(error)
+      setMonthlyGoalError(error instanceof Error ? error.message : 'Erro ao atualizar meta.')
+    } finally {
+      setMonthlyGoalSaving(false)
+    }
+  }
+
   const handleRegisterAssistance = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!isAdmin) {
@@ -1881,6 +1953,14 @@ function App() {
       insightMessages.push('Sem pendências no momento. Continue acompanhando o painel.')
     }
 
+    const goalTarget = monthlyGoal?.target ?? 0
+    const goalProgress = monthlyGoal?.progress ?? monthlyRevenue
+    const goalPercent =
+      goalTarget > 0 ? Math.min(100, Math.round((goalProgress / goalTarget) * 100)) : 0
+    const goalMonthLabel = new Date(currentYear, currentMonth).toLocaleDateString('pt-BR', {
+      month: 'long',
+    })
+
     return (
       <div className={`dashboard-grid${searchFocused ? ' search-mode' : ''}`}>
         <div className={`global-search${searchFocused ? ' active' : ''}`}>
@@ -1973,6 +2053,54 @@ function App() {
               </p>
             </div>
           </div>
+        </section>
+
+        <section className="panel goal-panel">
+          <div className="goal-progress">
+            <div className="section-head goal-head">
+              <div>
+                <p className="eyebrow">Meta do mês</p>
+                <h2>
+                  {goalMonthLabel.charAt(0).toUpperCase() + goalMonthLabel.slice(1)} · {currentYear}
+                </h2>
+              </div>
+              {monthlyGoalLoading && <span className="chip ghost">Atualizando…</span>}
+            </div>
+            {monthlyGoalError && <p className="login-error">{monthlyGoalError}</p>}
+            <p className="goal-values">
+              {formatCurrency(goalProgress)} de {goalTarget ? formatCurrency(goalTarget) : 'R$ 0,00'}
+            </p>
+            <div className="goal-bar">
+              <span style={{ width: `${goalPercent}%` }} />
+            </div>
+            <p className="goal-percent">
+              {goalTarget > 0 ? `${goalPercent}% atingido` : 'Defina a meta para este mês.'}
+            </p>
+          </div>
+          {isAdmin && (
+            <form className="goal-form" onSubmit={handleSaveMonthlyGoal}>
+              <label>
+                Meta mensal (R$)
+                <NumericFormat
+                  value={monthlyGoalFormValue === 0 ? '' : monthlyGoalFormValue}
+                  thousandSeparator="."
+                  decimalSeparator=","
+                  decimalScale={2}
+                  fixedDecimalScale
+                  allowNegative={false}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  onValueChange={({ floatValue }) => setMonthlyGoalFormValue(floatValue ?? 0)}
+                />
+              </label>
+              <div className="goal-form-actions">
+                <button className="primary" type="submit" disabled={monthlyGoalSaving}>
+                  {monthlyGoalSaving ? 'Salvando...' : 'Salvar meta'}
+                </button>
+                {monthlyGoalNotice && <p className="user-notice">{monthlyGoalNotice}</p>}
+              </div>
+            </form>
+          )}
         </section>
 
         <section className="panel deep-metrics span-2">

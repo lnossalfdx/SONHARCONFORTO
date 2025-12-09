@@ -93,7 +93,8 @@ model StockMovement {
 
 model Sale {
   id           String         @id @default(cuid())
-  publicId     String         @unique
+  publicId     String?        @unique
+  sequence     Int?           @unique
   client       Client         @relation(fields: [clientId], references: [id])
   clientId     String
   createdBy    User?          @relation("SaleCreatedBy", fields: [createdById], references: [id])
@@ -147,4 +148,20 @@ model Assistance {
   updatedAt          DateTime          @updatedAt
   photos             String[]
   notes              String?
+}
+
+model SaleCounter {
+  id      Int  @id
+  current Int  @default(0)
+}
+
+model MonthlyGoal {
+  id        String   @id @default(cuid())
+  year      Int
+  month     Int
+  target    Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month])
 }
