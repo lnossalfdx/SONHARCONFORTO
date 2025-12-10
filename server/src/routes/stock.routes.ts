@@ -29,6 +29,13 @@ const productSchema = z.object({
   imageUrl: z.string().url().optional(),
 })
 
+const updateSchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  price: z.number().nonnegative().optional(),
+  factoryCost: z.number().nonnegative().optional(),
+  imageUrl: z.string().url().optional(),
+})
+
 const generateSku = () => `SKU-${Math.floor(Math.random() * 90000 + 10000)}`
 
 router.get('/', authMiddleware, async (request, response) => {
@@ -57,6 +64,20 @@ router.post('/', authMiddleware, roleGuard('admin'), async (request, response) =
     data: { ...rest, sku: normalizedSku, reserved: 0 },
   })
   return response.status(201).json(product)
+})
+
+router.put('/:id', authMiddleware, roleGuard('admin'), async (request, response) => {
+  const payload = updateSchema.parse(request.body)
+  const { id } = request.params
+  try {
+    const product = await prisma.product.update({
+      where: { id },
+      data: payload,
+    })
+    return response.json(product)
+  } catch (error) {
+    return response.status(404).json({ message: 'Produto não encontrado.' })
+  }
 })
 
 const movementSchema = z.object({

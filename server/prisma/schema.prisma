@@ -20,6 +20,7 @@ enum MovementType {
 enum SaleStatus {
   pendente
   entregue
+  cancelada
 }
 
 enum PaymentMethod {
@@ -106,6 +107,7 @@ model Sale {
   createdBy    User?          @relation("SaleCreatedBy", fields: [createdById], references: [id])
   createdById  String?
   status       SaleStatus     @default(pendente)
+  requiresApproval Boolean    @default(false)
   discount     Float          @default(0)
   note         String?
   deliveryDate DateTime?
@@ -121,8 +123,12 @@ model SaleItem {
   id        String  @id @default(cuid())
   sale      Sale    @relation(fields: [saleId], references: [id])
   saleId    String
-  product   Product @relation(fields: [productId], references: [id])
-  productId String
+  product   Product? @relation(fields: [productId], references: [id])
+  productId String?
+  customName String?
+  customSku  String?
+  isCustom   Boolean @default(false)
+  requiresApproval Boolean @default(false)
   quantity  Int
   unitPrice Float
   discount  Float   @default(0)

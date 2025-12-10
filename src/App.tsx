@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { NumericFormat } from 'react-number-format'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
@@ -51,9 +51,14 @@ type StockMovement = {
 type SaleItem = {
   productId: string
   productName?: string
+  customName?: string
+  customSku?: string
+  isCustom?: boolean
+  requiresApproval?: boolean
   quantity: number
   unitPrice: number
   discount: number
+  searchName?: string
 }
 
 type PaymentMethod = 'PIX' | 'Cartão de crédito' | 'Cartão de débito' | 'Dinheiro'
@@ -75,7 +80,8 @@ type Sale = {
   discount: number
   payments: SalePayment[]
   note: string
-  status: 'pendente' | 'entregue'
+  status: 'pendente' | 'entregue' | 'cancelada'
+  requiresApproval: boolean
   createdAt: string
   deliveryDate: string
 }
@@ -187,13 +193,22 @@ const normalizeSale = (sale: any): Sale => ({
   clientId: sale.client?.id ?? sale.clientId ?? '',
   clientName: sale.client?.name ?? sale.clientName ?? '',
   items: Array.isArray(sale.items)
-    ? sale.items.map((item: any) => ({
-        productId: item.productId ?? item.product?.id ?? '',
-        productName: item.product?.name ?? '',
-        quantity: item.quantity ?? 0,
-        unitPrice: item.unitPrice ?? 0,
-        discount: item.discount ?? 0,
-      }))
+    ? sale.items.map((item: any) => {
+        const resolvedProductId = item.productId ?? item.product?.id ?? ''
+        const isCustom = !resolvedProductId
+        return {
+          productId: resolvedProductId,
+          productName: item.product?.name ?? item.customName ?? '',
+          customName: item.customName ?? undefined,
+          customSku: item.customSku ?? undefined,
+          isCustom,
+          requiresApproval: Boolean(item.requiresApproval),
+          quantity: item.quantity ?? 0,
+          unitPrice: item.unitPrice ?? 0,
+          discount: item.discount ?? 0,
+          searchName: item.product?.name ?? item.productName ?? item.customName ?? '',
+        }
+      })
     : [],
   value: sale.value ?? 0,
   discount: sale.discount ?? 0,
@@ -206,13 +221,31 @@ const normalizeSale = (sale: any): Sale => ({
       }))
     : [],
   note: sale.note ?? '',
-  status: sale.status === 'entregue' ? 'entregue' : 'pendente',
+  status:
+    sale.status === 'cancelada'
+      ? 'cancelada'
+      : sale.status === 'entregue'
+        ? 'entregue'
+        : 'pendente',
+  requiresApproval: Boolean(sale.requiresApproval),
   createdAt: sale.createdAt ?? new Date().toISOString(),
   deliveryDate: sale.deliveryDate ? sale.deliveryDate.slice(0, 10) : '',
 })
 
 const DEFAULT_PRODUCT_IMAGE =
   'https://images.unsplash.com/photo-1616594039964-42d379c6810d?auto=format&fit=crop&w=400&q=60'
+
+const RECEIPT_TERMS = [
+  'Garantia de 1 ano, válida somente com este pedido de venda e etiqueta intacta.',
+  'Qualquer problema deve ser comunicado diretamente à loja.',
+  'Defeitos só serão atendidos após análise técnica da fábrica (prazo de até 10 dias úteis).',
+  'Não há troca por gosto, conforto ou adaptação.',
+  'Garantia não cobre mau uso: manchas, umidade, mofo, rasgos, odor, queimaduras ou uso em base inadequada.',
+  'Até 3 cm de afundamento é considerado normal; acima disso será analisado.',
+  'Cliente deve conferir o produto no ato da entrega; após assinar, não há troca por avarias.',
+  'Colchão deve ser adequado ao biotipo e o rodízio deve ser feito a cada 15 dias nos 3 primeiros meses e depois uma vez ao mês.',
+  'Entregas podem adiantar ou atrasar conforme logística e fábrica.',
+]
 
 const normalizeStockItem = (product: any): StockItem => ({
   id: product.id,
@@ -367,6 +400,43 @@ const createSaleFormState = (clientsList: Client[]): SaleFormState => {
   }
 }
 
+const createSaleFormFromSale = (sale: Sale, stockItems: StockItem[]): SaleFormState => {
+  const defaultDate = new Date().toISOString().slice(0, 10)
+  return {
+    clientId: sale.clientId,
+    items: sale.items.map((item) => {
+      const referenceProduct = stockItems.find((stock) => stock.id === item.productId)
+      const isCustom = Boolean(item.isCustom || !item.productId)
+      return {
+        productId: item.productId ?? '',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discount: item.discount,
+        searchName: isCustom ? item.customName ?? item.productName ?? '' : referenceProduct?.name ?? item.productName ?? '',
+        customName: item.customName ?? item.productName ?? '',
+        isCustom,
+      }
+    }),
+    payments:
+      sale.payments.length > 0
+        ? sale.payments.map((payment) => ({
+            ...payment,
+            id: payment.id ?? `pay-${payment.method}-${Date.now()}`,
+          }))
+        : [
+            {
+              id: `pay-${Date.now()}`,
+              method: 'PIX',
+              amount: sale.value,
+              installments: 1,
+            },
+          ],
+    discount: sale.discount,
+    note: sale.note,
+    deliveryDate: sale.deliveryDate || defaultDate,
+  }
+}
+
 const createAssistanceFormState = (salesList: Sale[]): {
   saleId: string
   productId: string
@@ -401,6 +471,7 @@ function App() {
   const [saleModalError, setSaleModalError] = useState<string | null>(null)
   const [saleModalLoading, setSaleModalLoading] = useState(false)
   const [saleDraftId, setSaleDraftId] = useState(generateSaleId())
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null)
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null)
@@ -440,11 +511,22 @@ function App() {
   const [stockMinValue, setStockMinValue] = useState('')
   const [stockMaxValue, setStockMaxValue] = useState('')
   const [saleSearch, setSaleSearch] = useState('')
-  const [saleFilter, setSaleFilter] = useState<'all' | 'pendente' | 'entregue'>('all')
-  const [saleDateStart, setSaleDateStart] = useState('')
-  const [saleDateEnd, setSaleDateEnd] = useState('')
-  const [salePaymentFilter, setSalePaymentFilter] = useState<'all' | PaymentMethod>('all')
-  const [saleMinValue, setSaleMinValue] = useState('')
+const [saleFilter, setSaleFilter] = useState<'all' | 'pendente' | 'entregue' | 'cancelada'>('all')
+const [saleDateStart, setSaleDateStart] = useState('')
+const [saleDateEnd, setSaleDateEnd] = useState('')
+const [salePaymentFilter, setSalePaymentFilter] = useState<'all' | PaymentMethod>('all')
+const [saleMinValue, setSaleMinValue] = useState('')
+const [saleClientSearch, setSaleClientSearch] = useState('')
+const [clientSearchFocused, setClientSearchFocused] = useState(false)
+const [activeProductSearch, setActiveProductSearch] = useState<number | null>(null)
+const saleClientOptions = useMemo(() => {
+  const clientQuery = saleClientSearch.trim().toLowerCase()
+  if (!clientQuery) return clients
+  return clients.filter((client) => {
+    const blob = `${client.name} ${client.phone ?? ''} ${client.cpf ?? ''}`.toLowerCase()
+    return blob.includes(clientQuery)
+  })
+}, [clients, saleClientSearch])
 const [financeDateStart, setFinanceDateStart] = useState('')
 const [financeDateEnd, setFinanceDateEnd] = useState('')
 const [financePaymentFilter, setFinancePaymentFilter] = useState<'all' | PaymentMethod>('all')
@@ -483,6 +565,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
   const receiptContentRef = useRef<HTMLDivElement | null>(null)
   const inventoryPanelRef = useRef<HTMLElement | null>(null)
+  const customItemPlaceholder =
+    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" rx="16" fill="%23eef2ff"/><path d="M40 22v36M22 40h36" stroke="%23315ec8" stroke-width="6" stroke-linecap="round"/></svg>'
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
@@ -507,7 +591,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [userActionError, setUserActionError] = useState<string | null>(null)
   const [userActionLoading, setUserActionLoading] = useState(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
-  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('auth_token'))
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('token'))
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -520,7 +604,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const canManageStock = isAdmin
 
   const getAuthHeaders = (withJson = true) => {
-    const token = authToken ?? localStorage.getItem('auth_token')
+    const token = authToken ?? localStorage.getItem('token')
     const headers: Record<string, string> = {}
     if (withJson) headers['Content-Type'] = 'application/json'
     if (token) headers.Authorization = `Bearer ${token}`
@@ -585,14 +669,24 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     }
   }, [authToken])
 
-  useEffect(() => {
-    if (!authToken) {
-      setClients([])
-      setClientFetchError(null)
-      return
-    }
-    fetchClientsFromApi()
-  }, [authToken, fetchClientsFromApi])
+useEffect(() => {
+  if (!authToken) {
+    setClients([])
+    setClientFetchError(null)
+    return
+  }
+  fetchClientsFromApi()
+}, [authToken, fetchClientsFromApi])
+
+useEffect(() => {
+  if (clientSearchFocused) return
+  const selected = clients.find((client) => client.id === saleForm.clientId)
+  if (selected) {
+    setSaleClientSearch((prev) => (prev && prev === selected.name ? prev : selected.name))
+  } else if (!clients.length) {
+    setSaleClientSearch('')
+  }
+}, [clients, saleForm.clientId, clientSearchFocused])
 
   const fetchStockFromApi = useCallback(async () => {
     if (!authToken) return
@@ -883,7 +977,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   }, [authToken, fetchAssistancesFromApi])
 
   useEffect(() => {
-    const token = authToken ?? localStorage.getItem('auth_token')
+    const token = authToken ?? localStorage.getItem('token')
     if (!token) {
       setSessionUserId(null)
       return
@@ -910,7 +1004,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         setSessionUserId(normalizedUser.id)
       } catch (error) {
         console.error(error)
-        localStorage.removeItem('auth_token')
+        localStorage.removeItem('token')
         setAuthToken(null)
         setSessionUserId(null)
       }
@@ -946,9 +1040,10 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
 
   const todayIso = new Date().toISOString().slice(0, 10)
   const todayRevenue = sales
-    .filter((sale) => sale.createdAt.slice(0, 10) === todayIso)
+    .filter((sale) => !sale.requiresApproval && sale.status !== 'cancelada' && sale.createdAt.slice(0, 10) === todayIso)
     .reduce((sum, sale) => sum + sale.value, 0)
-  const pendingDeliveries = sales.filter((sale) => sale.status === 'pendente').length
+  const pendingDeliveries = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
+  const awaitingApproval = sales.filter((sale) => sale.requiresApproval).length
   const confirmDeliveryClient = confirmDeliveryState
     ? clients.find((clientItem) => clientItem.id === confirmDeliveryState.sale.clientId)
     : null
@@ -956,7 +1051,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const facts = [
     { label: 'Clientes ativos', value: clients.length.toString(), detail: 'Cadastros no CRM' },
     { label: 'Receita de hoje', value: formatCurrency(todayRevenue), detail: 'Faturado até agora' },
-    { label: 'Entregas pendentes', value: `${pendingDeliveries} vendas`, detail: 'Confirme após entrega' },
+    { label: 'Entregas pendentes', value: `${pendingDeliveries} vendas`, detail: 'Prontas para confirmar' },
+    { label: 'Aguardando aprovação', value: `${awaitingApproval}`, detail: 'Itens personalizados pendentes' },
   ]
 
   const addClient = async (data: typeof emptyClientForm) => {
@@ -1026,9 +1122,15 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     })
     setSales((prev) => prev.filter((sale) => sale.clientId !== clientId))
   }
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
-  const [stockMovementsLoading, setStockMovementsLoading] = useState(false)
-  const [stockMovementsError, setStockMovementsError] = useState<string | null>(null)
+const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+const [stockMovementsLoading, setStockMovementsLoading] = useState(false)
+const [stockMovementsError, setStockMovementsError] = useState<string | null>(null)
+const [editProductModal, setEditProductModal] = useState<StockItem | null>(null)
+const [editProductForm, setEditProductForm] = useState({ price: '', factoryCost: '', image: '' })
+const [editProductPreview, setEditProductPreview] = useState('')
+const [editProductLoading, setEditProductLoading] = useState(false)
+const [editProductError, setEditProductError] = useState<string | null>(null)
+const [expandedStockId, setExpandedStockId] = useState<string | null>(null)
 
   const resetInventoryForm = (preferredProductId?: string) => {
     setInventoryForm(createInventoryFormState(preferredProductId ?? (stockItems[0]?.id ?? '')))
@@ -1039,8 +1141,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     setReceiptModalOpen(true)
   }
 
-  const focusInventoryPanel = (productId?: string) => {
-    if (!canManageStock) return
+const focusInventoryPanel = (productId?: string) => {
+  if (!canManageStock) return
     setInventoryPanelOpen(true)
     setInventoryForm((prev) => {
       if (!stockItems.length) {
@@ -1059,6 +1161,102 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     requestAnimationFrame(() => {
       inventoryPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
+  }
+
+  const toggleStockCard = (productId: string) => {
+    setExpandedStockId((prev) => (prev === productId ? null : productId))
+  }
+
+  const handleSelectClientOption = (client: Client) => {
+    setSaleForm((prev) => ({ ...prev, clientId: client.id }))
+    setSaleClientSearch(client.name)
+    setClientSearchFocused(false)
+  }
+
+  const handleClientSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return
+    const option = saleClientOptions[0]
+    if (!option) return
+    event.preventDefault()
+    handleSelectClientOption(option)
+  }
+
+  const openEditProductModal = (product: StockItem) => {
+    if (!isAdmin) return
+    setEditProductModal(product)
+    setEditProductForm({
+      price: String(product.price ?? 0),
+      factoryCost: product.factoryCost !== undefined ? String(product.factoryCost) : '',
+      image: product.imageUrl,
+    })
+    setEditProductPreview(product.imageUrl)
+    setEditProductError(null)
+  }
+
+  const closeEditProductModal = () => {
+    setEditProductModal(null)
+    setEditProductPreview('')
+    setEditProductForm({ price: '', factoryCost: '', image: '' })
+    setEditProductError(null)
+    setEditProductLoading(false)
+  }
+
+  const handleEditProductImageUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) return
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const result = reader.result
+      if (typeof result === 'string') {
+        setEditProductPreview(result)
+        setEditProductForm((prev) => ({ ...prev, image: result }))
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleEditProductSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!authToken || !editProductModal) {
+      setEditProductError('Sessão expirada. Faça login novamente.')
+      return
+    }
+    const priceNumber = Number(editProductForm.price)
+    if (Number.isNaN(priceNumber) || priceNumber < 0) {
+      setEditProductError('Informe um valor válido para o preço.')
+      return
+    }
+    const factoryCostNumber = editProductForm.factoryCost ? Number(editProductForm.factoryCost) : 0
+    if (Number.isNaN(factoryCostNumber) || factoryCostNumber < 0) {
+      setEditProductError('Informe um valor válido para o custo.')
+      return
+    }
+    const payload = {
+      price: priceNumber,
+      factoryCost: factoryCostNumber,
+      imageUrl: editProductForm.image || editProductModal.imageUrl,
+    }
+    setEditProductLoading(true)
+    setEditProductError(null)
+    try {
+      const response = await fetch(`${API_BASE_URL}/stock/${editProductModal.id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível atualizar este produto.')
+      }
+      const updated = normalizeStockItem(await response.json())
+      setStockItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      closeEditProductModal()
+    } catch (error) {
+      console.error(error)
+      setEditProductError(error instanceof Error ? error.message : 'Erro ao salvar alterações do produto.')
+    } finally {
+      setEditProductLoading(false)
+    }
   }
 
   const formatDigits = (value: string) => value.replace(/\D/g, '')
@@ -1176,7 +1374,13 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
           .filter((sale) => {
             const client = clients.find((c) => c.id === sale.clientId)
             const products = sale.items
-              .map((saleItem) => stockItems.find((stock) => stock.id === saleItem.productId)?.name ?? saleItem.productName ?? '')
+        .map(
+          (saleItem) =>
+            stockItems.find((stock) => stock.id === saleItem.productId)?.name ??
+            saleItem.customName ??
+            saleItem.productName ??
+            '',
+        )
               .join(' ')
             return `${sale.id} ${client?.name ?? sale.clientName ?? ''} ${products}`.toLowerCase().includes(normalizedSearch)
           })
@@ -1187,7 +1391,13 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
               type: 'Venda' as const,
               title: `Venda ${sale.id}`,
               description: `${client?.name ?? sale.clientName ?? 'Cliente removido'} · ${sale.items
-                .map((saleItem) => stockItems.find((stock) => stock.id === saleItem.productId)?.name ?? saleItem.productName ?? '')
+                .map(
+                  (saleItem) =>
+                    stockItems.find((stock) => stock.id === saleItem.productId)?.name ??
+                    saleItem.customName ??
+                    saleItem.productName ??
+                    '',
+                )
                 .join(', ')}`,
               page: 'sleepLab' as PageId,
             }
@@ -1222,12 +1432,48 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     }
   }
 
+  const reservedByEditingSale = (productId: string) => {
+    if (!editingSale) return 0
+    return editingSale.items
+      .filter((saleItem) => saleItem.productId === productId)
+      .reduce((sum, saleItem) => sum + saleItem.quantity, 0)
+  }
+
   const addSaleItemRow = () => {
     if (!stockItems.length) return
     const product = stockItems[0]
     setSaleForm((prev) => ({
       ...prev,
-      items: [...prev.items, { productId: product.id, quantity: 1, unitPrice: product.price, discount: 0 }],
+      items: [
+        ...prev.items,
+        {
+          productId: product.id,
+          quantity: 1,
+          unitPrice: product.price,
+          discount: 0,
+          searchName: product.name,
+          isCustom: false,
+        },
+      ],
+    }))
+  }
+
+  const addCustomSaleItem = () => {
+    setSaleForm((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          productId: '',
+          quantity: 1,
+          unitPrice: 0,
+          discount: 0,
+          searchName: '',
+          customName: '',
+          customSku: '',
+          isCustom: true,
+        },
+      ],
     }))
   }
 
@@ -1365,7 +1611,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         return [...prev, normalizedUser]
       })
       setSessionUserId(normalizedUser.id)
-      localStorage.setItem('auth_token', data.token)
+      localStorage.setItem('token', data.token)
       setAuthToken(data.token)
       setLoginEmail('')
       setLoginPassword('')
@@ -1379,7 +1625,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const handleLogout = () => {
     setSessionUserId(null)
     setProfileModalOpen(false)
-    localStorage.removeItem('auth_token')
+    localStorage.removeItem('token')
     setAuthToken(null)
   }
 
@@ -1391,18 +1637,33 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     setClientModalLoading(false)
   }
 
-  const openSaleModal = () => {
-    if (!canRegisterSales) return
-    setSaleDraftId(generateSaleId())
-    setSaleForm(createSaleFormState(clients))
-     setSaleModalError(null)
-     setSaleModalLoading(false)
+  const openSaleModal = (saleToEdit?: Sale) => {
+    if (saleToEdit) {
+      if (!isAdmin) return
+      setEditingSale(saleToEdit)
+      setSaleDraftId(saleToEdit.id)
+      setSaleForm(createSaleFormFromSale(saleToEdit, stockItems))
+      const clientMatch = clients.find((clientItem) => clientItem.id === saleToEdit.clientId)
+      setSaleClientSearch(clientMatch?.name ?? saleToEdit.clientName ?? '')
+    } else {
+      if (!canRegisterSales) return
+      setEditingSale(null)
+      setSaleDraftId(generateSaleId())
+      setSaleForm(createSaleFormState(clients))
+      const firstClient = clients[0]
+      setSaleClientSearch(firstClient ? firstClient.name : '')
+    }
+    setSaleModalError(null)
+    setSaleModalLoading(false)
     setSaleModalOpen(true)
   }
   const closeSaleModal = () => {
     setSaleModalOpen(false)
     setSaleModalError(null)
     setSaleModalLoading(false)
+    setSaleClientSearch('')
+    setActiveProductSearch(null)
+    setEditingSale(null)
   }
 
   const openCreateClientModal = () => {
@@ -1502,11 +1763,45 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     }
 
     const quantityCheck: Record<string, number> = {}
-    const saleItems: SaleItem[] = []
+    type SaleItemPayload =
+      | {
+          kind: 'product'
+          productId: string
+          quantity: number
+          unitPrice: number
+          discount: number
+        }
+      | {
+          kind: 'custom'
+          customName: string
+          quantity: number
+          unitPrice: number
+          discount: number
+        }
+    const saleItems: SaleItemPayload[] = []
     for (const item of saleForm.items) {
-      if (!item.productId || item.quantity <= 0) {
+      if (!item.quantity || item.quantity <= 0) {
         setSaleModalError('Itens inválidos. Verifique as quantidades.')
         return
+      }
+      if (item.isCustom || !item.productId) {
+        const customLabel = item.customName?.trim() ?? ''
+        if (customLabel.length < 3) {
+          setSaleModalError('Descreva o item personalizado.')
+          return
+        }
+        if (item.unitPrice <= 0) {
+          setSaleModalError('Informe o valor dos itens personalizados.')
+          return
+        }
+        saleItems.push({
+          kind: 'custom',
+          customName: customLabel,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+        })
+        continue
       }
       const product = stockItems.find((stockItem) => stockItem.id === item.productId)
       if (!product) {
@@ -1514,6 +1809,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         return
       }
       saleItems.push({
+        kind: 'product',
         productId: item.productId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
@@ -1524,7 +1820,16 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
 
     for (const [productId, qty] of Object.entries(quantityCheck)) {
       const product = stockItems.find((stockItem) => stockItem.id === productId)
-      if (!product || product.quantity < qty) {
+      if (!product) {
+        setSaleModalError('Produto inválido. Atualize o estoque antes de vender.')
+        return
+      }
+      const reservedBySale =
+        editingSale?.items
+          .filter((saleItem) => saleItem.productId === productId)
+          .reduce((sum, saleItem) => sum + saleItem.quantity, 0) ?? 0
+      const availableQuantity = product.quantity + reservedBySale
+      if (availableQuantity < qty) {
         setSaleModalError('Estoque insuficiente para concluir o pedido.')
         return
       }
@@ -1533,7 +1838,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     const payload = {
       clientId: saleForm.clientId,
       items: saleItems.map((item) => ({
-        productId: item.productId,
+        productId: item.kind === 'product' ? item.productId : undefined,
+        customName: item.kind === 'custom' ? item.customName : undefined,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         discount: item.discount,
@@ -1550,32 +1856,41 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
 
     setSaleModalLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/sales`, {
-        method: 'POST',
+      const endpoint = editingSale
+        ? `${API_BASE_URL}/sales/${editingSale.backendId ?? editingSale.id}`
+        : `${API_BASE_URL}/sales`
+      const response = await fetch(endpoint, {
+        method: editingSale ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error('Não foi possível registrar a venda.')
+        throw new Error(editingSale ? 'Não foi possível atualizar a venda.' : 'Não foi possível registrar a venda.')
       }
       const createdSale = normalizeSale(await response.json())
-      setSales((prev) => [createdSale, ...prev])
-      setStockItems((prev) =>
-        prev.map((item) => {
-          const qty = quantityCheck[item.id]
-          if (!qty) return item
-          return { ...item, quantity: item.quantity - qty, reserved: item.reserved + qty }
-        }),
-      )
+      if (editingSale) {
+        setSales((prev) => prev.map((item) => (item.id === editingSale.id ? createdSale : item)))
+        setEditingSale(null)
+      } else {
+        setSales((prev) => [createdSale, ...prev])
+        setStockItems((prev) =>
+          prev.map((item) => {
+            const qty = quantityCheck[item.id]
+            if (!qty) return item
+            return { ...item, quantity: item.quantity - qty, reserved: item.reserved + qty }
+          }),
+        )
+        setLastReceiptId(createdSale.id)
+      }
       await fetchStockFromApi()
       await fetchStockMovementsFromApi()
+      await fetchSalesFromApi()
       setSaleForm(createSaleFormState(clients))
       setSaleDraftId(generateSaleId())
       closeSaleModal()
-      setLastReceiptId(createdSale.id)
     } catch (error) {
       console.error(error)
-      setSaleModalError(error instanceof Error ? error.message : 'Erro ao registrar a venda.')
+      setSaleModalError(error instanceof Error ? error.message : 'Erro ao salvar a venda.')
     } finally {
       setSaleModalLoading(false)
     }
@@ -1612,6 +1927,62 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao confirmar entrega.')
+    }
+  }
+
+  const handleCancelSale = async (sale: Sale) => {
+    if (!isAdmin) return
+    if (!authToken) {
+      window.alert('Sessão expirada. Faça login novamente.')
+      return
+    }
+    if (sale.status === 'entregue') {
+      window.alert('Não é possível cancelar um pedido já entregue.')
+      return
+    }
+    if (sale.status === 'cancelada') return
+    const confirm = window.confirm(`Deseja cancelar o pedido ${sale.id}?`)
+    if (!confirm) return
+    const backendId = sale.backendId ?? sale.id
+    try {
+      const response = await fetch(`${API_BASE_URL}/sales/${backendId}/cancel`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível cancelar o pedido.')
+      }
+      const updatedSale = normalizeSale(await response.json())
+      setSales((prev) => prev.map((item) => (item.id === sale.id ? updatedSale : item)))
+      setConfirmDeliveryState((prev) => (prev && prev.sale.id === sale.id ? null : prev))
+      await fetchStockFromApi()
+      await fetchSalesFromApi()
+    } catch (error) {
+      console.error(error)
+      window.alert(error instanceof Error ? error.message : 'Erro ao cancelar o pedido.')
+    }
+  }
+
+  const handleApproveSale = async (sale: Sale) => {
+    if (!isAdmin || !sale.requiresApproval) return
+    if (!authToken) {
+      window.alert('Sessão expirada. Faça login novamente.')
+      return
+    }
+    const backendId = sale.backendId ?? sale.id
+    try {
+      const response = await fetch(`${API_BASE_URL}/sales/${backendId}/approve`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível aprovar este pedido.')
+      }
+      const updatedSale = normalizeSale(await response.json())
+      setSales((prev) => prev.map((item) => (item.id === sale.id ? updatedSale : item)))
+    } catch (error) {
+      console.error(error)
+      window.alert(error instanceof Error ? error.message : 'Erro ao aprovar pedido.')
     }
   }
 
@@ -1939,7 +2310,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
       setUsers((prev) => prev.filter((user) => user.id !== userId))
       if (sessionUserId === userId) {
         setSessionUserId(null)
-        localStorage.removeItem('auth_token')
+        localStorage.removeItem('token')
         setAuthToken(null)
       }
       setUserManagerNotice(`Usuário ${target.name} removido.`)
@@ -2002,7 +2373,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
       setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)))
       if (updated.id === sessionUserId && !updated.active) {
         setSessionUserId(null)
-        localStorage.removeItem('auth_token')
+        localStorage.removeItem('token')
         setAuthToken(null)
       }
     } catch (error) {
@@ -2014,15 +2385,16 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   }
 
   const renderDashboard = () => {
-    const spotlightSales = sales.slice(0, 3)
+    const spotlightSales = sales.filter((sale) => sale.status !== 'cancelada' && !sale.requiresApproval).slice(0, 3)
     const nextDeliveries = sales
-      .filter((sale) => sale.status === 'pendente')
+      .filter((sale) => sale.status === 'pendente' && !sale.requiresApproval)
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
       .slice(0, 3)
     const nowDate = new Date()
     const currentMonth = nowDate.getMonth()
     const currentYear = nowDate.getFullYear()
     const monthlySales = sales.filter((sale) => {
+      if (sale.status === 'cancelada' || sale.requiresApproval) return false
       const saleDate = new Date(sale.createdAt)
       return saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear
     })
@@ -2034,9 +2406,9 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
           (monthlySales.filter((sale) => sale.status === 'entregue').length / monthlyOrders) * 100,
         )
       : null
-    const pendingOrders = sales.filter((sale) => sale.status === 'pendente').length
+    const pendingOrders = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
     const deliveredOrders = sales.filter((sale) => sale.status === 'entregue').length
-    const clientsWithSales = new Set(sales.map((sale) => sale.clientId)).size
+    const clientsWithSales = new Set(sales.filter((sale) => sale.status !== 'cancelada').map((sale) => sale.clientId)).size
     const reservedStock = stockItems.reduce((sum, item) => sum + item.reserved, 0)
     const totalStockUnits = stockItems.reduce((sum, item) => sum + item.quantity + item.reserved, 0)
     const dashboardMetrics = [
@@ -2148,7 +2520,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
               <button
                 type="button"
                 className="primary"
-                onClick={openSaleModal}
+                onClick={() => openSaleModal()}
                 disabled={!canRegisterSales || !clients.length || !stockItems.length}
               >
                 Abrir nova venda
@@ -2573,10 +2945,13 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     const receiptClient = clients.find((clientItem) => clientItem.id === sale.clientId)
     const saleItemsSnapshot = sale.items.map((item) => {
       const product = stockItems.find((stock) => stock.id === item.productId)
+      const productName =
+        product?.name ?? item.customName ?? item.productName ?? (item.productId ? 'Produto removido' : 'Item personalizado')
+      const sku = product?.sku ?? item.customSku ?? item.productId ?? '—'
       return {
         ...item,
-        productName: product?.name ?? 'Produto removido',
-        sku: product?.sku ?? item.productId,
+        productName,
+        sku,
       }
     })
     const grossSubtotal = sale.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
@@ -2587,9 +2962,9 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         <header className="receipt-copy-head">
           <div className="receipt-company">
             <p className="receipt-brand">SONHAR CONFORTO</p>
-            <p>CRM do Sono · CNPJ 00.000.000/0001-00</p>
-            <p>Av. dos Sonhos, 1234 · São Paulo – SP</p>
-            <p>(11) 4002-8922 · contato@sonharconforto.com</p>
+            <p>CRM do Sono · CNPJ 07.860.624/0001-28</p>
+            <p>R. Heitor Alves Guimarães, 819 - Centro, Araucária - PR, 83702-130</p>
+            <p>(41) 99899-0952 · contato@sonharconforto.com</p>
           </div>
           <div className="receipt-head-meta">
             <p>
@@ -2607,8 +2982,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
           <div>
             <span className="field-label">Cliente</span>
             <p>{receiptClient?.name ?? receiptSale?.clientName ?? 'Cliente removido'}</p>
-            <p>{receiptClient?.cpf || 'CPF não informado'}</p>
-            <p>{receiptClient?.phone || 'Telefone não informado'}</p>
+            <p>{receiptClient?.cpf ? formatCpf(receiptClient.cpf) : 'CPF não informado'}</p>
+            <p>{receiptClient?.phone ? formatPhone(receiptClient.phone) : 'Telefone não informado'}</p>
           </div>
           <div>
             <span className="field-label">Endereço</span>
@@ -2695,10 +3070,11 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
         </div>
         <div className="receipt-terms">
           <p className="field-label">Termos</p>
-          <p>
-            Este comprovante deve acompanhar a mercadoria até a entrega. Conferir produtos no ato da entrega. Em caso de
-            divergência entrar em contato em até 24h.
-          </p>
+          <ul>
+            {RECEIPT_TERMS.map((term) => (
+              <li key={term}>{term}</li>
+            ))}
+          </ul>
         </div>
         {copyIndex === 0 && <div className="receipt-divider" />}
       </section>
@@ -2774,7 +3150,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
               <button
                 className="ghost"
                 type="button"
-                onClick={openSaleModal}
+                onClick={() => openSaleModal()}
                 disabled={!canRegisterSales}
               >
                 Registrar venda
@@ -2795,6 +3171,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                 { id: 'all', label: 'Todas' },
                 { id: 'pendente', label: 'Pendentes' },
                 { id: 'entregue', label: 'Entregues' },
+                { id: 'cancelada', label: 'Canceladas' },
               ] as const
             ).map((filter) => (
               <button
@@ -2849,12 +3226,31 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
               visibleSales.map((sale) => {
                 const client = clients.find((clientItem) => clientItem.id === sale.clientId)
                 const totalUnits = sale.items.reduce((sum, item) => sum + item.quantity, 0)
+                const awaitingApproval = sale.requiresApproval
+                const statusLabel = awaitingApproval
+                  ? 'Aguardando aprovação'
+                  : sale.status === 'pendente'
+                    ? 'Aguardando entrega'
+                    : sale.status === 'entregue'
+                      ? 'Entregue'
+                      : 'Cancelado'
+                const statusTone = awaitingApproval
+                  ? 'warning'
+                  : sale.status === 'entregue'
+                    ? 'success'
+                    : sale.status === 'cancelada'
+                      ? 'danger'
+                      : 'warning'
+                const canManageThisSale = isAdmin && sale.status !== 'cancelada'
                 return (
                   <div className={`sale-card ${sale.status}`} key={sale.id}>
                     <div>
-                      <p className="sale-id">
-                        #{sale.id} · {client?.name ?? sale.clientName ?? 'Cliente removido'}
-                      </p>
+                      <div className="sale-card-headline">
+                        <p className="sale-id">
+                          #{sale.id} · {client?.name ?? sale.clientName ?? 'Cliente removido'}
+                        </p>
+                        <span className={`chip ${statusTone}`}>{statusLabel}</span>
+                      </div>
                       <p className="sale-meta">
                         {totalUnits} itens · {formatCurrency(sale.value)}
                       </p>
@@ -2868,7 +3264,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                           const productInfo = stockItems.find((stock) => stock.id === item.productId)
                           return (
                             <span key={`${item.productId}-${idx}`}>
-                              {item.quantity}x {productInfo?.name ?? item.productName ?? 'Produto removido'} —{' '}
+                              {item.quantity}x {productInfo?.name ?? item.customName ?? item.productName ?? 'Item personalizado'} —{' '}
                               {formatCurrency(Math.max(0, item.unitPrice - item.discount))}
                               {item.discount > 0 && ` (desconto de ${formatCurrency(item.discount)}/u)`}
                             </span>
@@ -2890,27 +3286,50 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                         <span className="chip ghost">Desconto aplicado · {formatCurrency(sale.discount)}</span>
                       )}
                       {sale.note && <p className="sale-note">Observação: {sale.note}</p>}
+                      {awaitingApproval && (
+                        <p className="sale-note warn">Itens personalizados aguardando aprovação do administrador.</p>
+                      )}
                       <p className="sale-note">
-                        Criado em {new Date(sale.createdAt).toLocaleDateString('pt-BR')} ·{' '}
-                        {sale.status === 'pendente' ? 'aguardando entrega' : 'entregue'}
+                        Criado em {new Date(sale.createdAt).toLocaleDateString('pt-BR')} · {statusLabel.toLowerCase()}
                       </p>
                     </div>
                     <div className="sale-card-actions">
                       <button type="button" className="ghost" onClick={() => openReceiptModal(sale)}>
                         Visualizar nota
                       </button>
-                      <button
-                        type="button"
-                        className={sale.status === 'pendente' ? 'primary subtle' : 'ghost'}
-                        onClick={() =>
-                          setConfirmDeliveryState({
-                            sale,
-                          })
-                        }
-                        disabled={sale.status === 'entregue'}
-                      >
-                        {sale.status === 'entregue' ? 'Entregue' : 'Confirmar entrega'}
-                      </button>
+                      {canManageThisSale && (
+                        <button type="button" className="ghost" onClick={() => openSaleModal(sale)}>
+                          Editar pedido
+                        </button>
+                      )}
+                      {isAdmin && sale.status === 'pendente' && (
+                        <button type="button" className="ghost danger" onClick={() => handleCancelSale(sale)}>
+                          Cancelar pedido
+                        </button>
+                      )}
+                      {awaitingApproval && isAdmin && (
+                        <button type="button" className="primary" onClick={() => handleApproveSale(sale)}>
+                          Aprovar itens
+                        </button>
+                      )}
+                      {sale.status === 'pendente' ? (
+                        <button
+                          type="button"
+                          className="primary subtle"
+                          onClick={() =>
+                            setConfirmDeliveryState({
+                              sale,
+                            })
+                          }
+                          disabled={awaitingApproval}
+                        >
+                          Confirmar entrega
+                        </button>
+                      ) : (
+                        <span className={`chip ${sale.status === 'entregue' ? 'success' : 'danger'}`}>
+                          {sale.status === 'entregue' ? 'Entregue' : 'Cancelado'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )
@@ -2923,7 +3342,8 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   }
 
   const renderDeliveries = () => {
-    const deliveryMatchesFilter = (sale: Sale) => deliveryFilter === 'all' || sale.status === deliveryFilter
+    const deliveryMatchesFilter = (sale: Sale) =>
+      sale.status !== 'cancelada' && (deliveryFilter === 'all' || sale.status === deliveryFilter)
     const deliveriesByDate = sales
       .filter((sale) => sale.deliveryDate)
       .filter((sale) => deliveryMatchesFilter(sale))
@@ -2992,6 +3412,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                                 .map(
                                   (saleItem) =>
                                     stockItems.find((stock) => stock.id === saleItem.productId)?.name ??
+                                    saleItem.customName ??
                                     saleItem.productName ??
                                     '',
                                 )
@@ -2999,19 +3420,24 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                                 .join(', ')}
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            className={sale.status === 'pendente' ? 'primary subtle' : 'ghost'}
-                            onClick={() =>
-                              setConfirmDeliveryState({
-                                sale,
-                                redirect: 'sleepLab',
-                              })
-                            }
-                            disabled={sale.status === 'entregue'}
-                          >
-                            {sale.status === 'pendente' ? 'Confirmar' : 'Entregue'}
-                          </button>
+                          {sale.status === 'pendente' ? (
+                            <button
+                              type="button"
+                              className="primary subtle"
+                              onClick={() =>
+                                setConfirmDeliveryState({
+                                  sale,
+                                  redirect: 'sleepLab',
+                                })
+                              }
+                            >
+                              Confirmar
+                            </button>
+                          ) : (
+                            <span className={`chip ${sale.status === 'entregue' ? 'success' : 'danger'}`}>
+                              {sale.status === 'entregue' ? 'Entregue' : 'Cancelado'}
+                            </span>
+                          )}
                         </div>
                       )
                     })}
@@ -3224,81 +3650,111 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
             {!stockLoading &&
               !stockError &&
               filteredStock.map((item) => {
-              const totalUnits = item.quantity + item.reserved
-              const reservedPercent = totalUnits ? Math.round((item.reserved / totalUnits) * 100) : 0
-              const canRemove = item.quantity === 0 && item.reserved === 0
-              const hasHistory = stockMovements.some((movement) => movement.productId === item.id)
-              return (
-                <div className="stock-card" key={item.id}>
-                  <div className="stock-card-top">
-                    <img src={item.imageUrl} alt={item.name} />
-                    <div className="stock-card-info">
-                      <p>{item.name}</p>
-                      <span>{item.sku}</span>
-                    </div>
-                    <div className="stock-card-actions">
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() => focusInventoryPanel(item.id)}
-                        disabled={!canManageStock}
-                        title={canManageStock ? 'Movimentar estoque' : 'Disponível apenas para administradores'}
-                      >
-                        Movimentar
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost danger"
-                        onClick={() => handleDeleteProduct(item.id)}
-                        disabled={!canRemove || !canManageStock}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-                  <div className="stock-card-stats">
-                    <div>
-                      <span>Disponível</span>
-                      <strong>{item.quantity}</strong>
-                    </div>
-                    <div>
-                      <span>Reservado</span>
-                      <strong>{item.reserved}</strong>
-                    </div>
-                    <div>
-                      <span>Valor unitário</span>
-                      <strong>{formatCurrency(item.price)}</strong>
-                    </div>
-                    {isAdmin && (
+                const totalUnits = item.quantity + item.reserved
+                const reservedPercent = totalUnits ? Math.round((item.reserved / totalUnits) * 100) : 0
+                const canRemove = item.quantity === 0 && item.reserved === 0
+                const isExpanded = expandedStockId === item.id
+                const hasHistory = stockMovements.some((movement) => movement.productId === item.id)
+                return (
+                  <div className={`stock-card ${isExpanded ? 'expanded' : ''}`} key={item.id}>
+                    <button type="button" className="stock-card-summary" onClick={() => toggleStockCard(item.id)}>
                       <div>
-                        <span>Custo fábrica</span>
-                        <strong>
-                          {item.factoryCost !== undefined ? formatCurrency(item.factoryCost) : '—'}
-                        </strong>
+                        <p>{item.name}</p>
+                        <span>{item.sku}</span>
                       </div>
-                    )}
+                      <div className="summary-badges">
+                        <span className="chip ghost">Disp. {item.quantity}</span>
+                        <span className="chip ghost">Res. {item.reserved}</span>
+                        <span className="chip highlight">{formatCurrency(item.price)}</span>
+                      </div>
+                    </button>
                   </div>
-                  <div className="stock-card-bar">
-                    <div className="meter">
-                      <span style={{ width: `${reservedPercent}%` }} />
-                    </div>
-                    <small>{reservedPercent}% reservado</small>
-                  </div>
-                  <div className="stock-card-footer">
-                    <div>
-                      <span>Estoque estimado</span>
-                      <strong>{formatCurrency(item.price * item.quantity)}</strong>
-                    </div>
-                    <div>
-                      <span>Status</span>
-                      <p className="muted">{hasHistory ? 'Com movimentações recentes' : 'Sem movimentos'}</p>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
-        </section>
+          {expandedStockId && (
+            <div className="stock-detail-panel">
+              {(() => {
+                const product =
+                  stockItems.find((item) => item.id === expandedStockId) ?? stockItems[0]
+                if (!product) return null
+                const totalUnits = product.quantity + product.reserved
+                const reservedPercent = totalUnits ? Math.round((product.reserved / totalUnits) * 100) : 0
+                const hasHistory = stockMovements.some((movement) => movement.productId === product.id)
+                return (
+                  <>
+                    <div className="stock-detail-head">
+                      <div className="stock-detail-thumb">
+                        <img src={product.imageUrl || customItemPlaceholder} alt={product.name} />
+                        {isAdmin && (
+                          <button type="button" className="ghost tiny" onClick={() => openEditProductModal(product)}>
+                            Editar produto
+                          </button>
+                        )}
+                      </div>
+                      <div className="stock-detail-meta">
+                        <h4>{product.name}</h4>
+                        <p>SKU {product.sku}</p>
+                        <div className="stock-detail-tags">
+                          <span className="chip ghost">Disponível {product.quantity}</span>
+                          <span className="chip ghost">Reservado {product.reserved}</span>
+                          <span className="chip highlight">{formatCurrency(product.price)}</span>
+                        </div>
+                        <div className="stock-detail-actions">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => focusInventoryPanel(product.id)}
+                            disabled={!canManageStock}
+                          >
+                            Movimentar
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost danger"
+                            onClick={() => handleDeleteProduct(product.id)}
+                            disabled={product.quantity > 0 || product.reserved > 0 || !canManageStock}
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="stock-detail-grid">
+                      <div>
+                        <span>Valor unitário</span>
+                        <strong>{formatCurrency(product.price)}</strong>
+                      </div>
+                      {isAdmin && (
+                        <div>
+                          <span>Custo fábrica</span>
+                          <strong>
+                            {product.factoryCost !== undefined ? formatCurrency(product.factoryCost) : '—'}
+                          </strong>
+                        </div>
+                      )}
+                      <div>
+                        <span>Estoque estimado</span>
+                        <strong>{formatCurrency(product.price * product.quantity)}</strong>
+                      </div>
+                      <div>
+                        <span>Status</span>
+                        <strong>{hasHistory ? 'Com movimentações recentes' : 'Sem movimentos'}</strong>
+                      </div>
+                    </div>
+                    <div className="stock-detail-meter">
+                      <span>Reservado</span>
+                      <div className="meter">
+                        <span style={{ width: `${reservedPercent}%` }} />
+                      </div>
+                      <small>{reservedPercent}% reservado</small>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          )}
+       </section>
 
         <section className="panel stock-movement" ref={inventoryPanelRef}>
           <div className="section-head">
@@ -3633,6 +4089,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     const financeMin = financeMinValue ? Number(financeMinValue) : null
     const financeMax = financeMaxValue ? Number(financeMaxValue) : null
     const financeSales = sales.filter((sale) => {
+      if (sale.status === 'cancelada') return false
       const saleDate = sale.createdAt.slice(0, 10)
       if (financeDateStart && saleDate < financeDateStart) return false
       if (financeDateEnd && saleDate > financeDateEnd) return false
@@ -4552,7 +5009,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
             <div className="section-head">
               <div>
                 <p className="eyebrow">Sleep Lab</p>
-                <h2>Novo pedido #{saleDraftId}</h2>
+                <h2>{editingSale ? `Editar pedido #${saleDraftId}` : `Novo pedido #${saleDraftId}`}</h2>
               </div>
               <button className="text-button" onClick={closeSaleModal}>
                 Fechar
@@ -4564,65 +5021,166 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                   Para registrar uma venda, cadastre pelo menos um cliente e um produto em estoque.
                 </p>
               )}
-              <label>
-                Cliente cadastrado
-                <select
-                  value={saleForm.clientId}
-                  onChange={(event) => setSaleForm((prev) => ({ ...prev, clientId: event.target.value }))}
-                  required
-                >
-                  {clients.length === 0 && <option value="">Cadastre um cliente primeiro</option>}
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
+              <label className="search-field">
+                Cliente
+                <input
+                  value={saleClientSearch}
+                  onFocus={() => setClientSearchFocused(true)}
+                  onBlur={() => setTimeout(() => setClientSearchFocused(false), 150)}
+                  onChange={(event) => setSaleClientSearch(event.target.value)}
+                  placeholder="Digite o nome do cliente"
+                  autoComplete="off"
+                  onKeyDown={handleClientSearchKeyDown}
+                />
+                {clientSearchFocused && (
+                  <div className="search-dropdown">
+                    {saleClientOptions.length ? (
+                      saleClientOptions.slice(0, 6).map((client) => (
+                        <button
+                          type="button"
+                          key={client.id}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSelectClientOption(client)}
+                        >
+                          <strong>{client.name}</strong>
+                          <span>{client.phone || client.cpf || 'Cliente sem contato'}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="empty-state">Nenhum cliente encontrado.</p>
+                    )}
+                  </div>
+                )}
               </label>
               <div className="sale-items-stack">
                 <div className="sale-items-head">
                   <p className="form-title">Itens do pedido</p>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={addSaleItemRow}
-                    disabled={!stockItems.length || saleModalLoading}
-                  >
-                    Adicionar item
-                  </button>
+                  <div className="sale-items-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={addSaleItemRow}
+                      disabled={!stockItems.length || saleModalLoading}
+                    >
+                      Adicionar item
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={addCustomSaleItem}
+                      disabled={saleModalLoading}
+                    >
+                      Item personalizado
+                    </button>
+                  </div>
                 </div>
                 {saleForm.items.length === 0 && (
                   <p className="empty-state">Nenhum item selecionado. Use "Adicionar item" para começar.</p>
-     )}
+                )}
 
                 {saleForm.items.map((item, index) => {
-                  const product = stockItems.find((stock) => stock.id === item.productId)
+                  const isCustomItem = Boolean(item.isCustom || !item.productId)
+                  const product = !isCustomItem ? stockItems.find((stock) => stock.id === item.productId) : null
+                  const reservedAmount = !isCustomItem ? reservedByEditingSale(item.productId) : 0
+                  const availableQuantity = product ? product.quantity + reservedAmount : null
+                  const query = (item.searchName ?? '').toLowerCase()
+                  const filteredProducts = query
+                    ? stockItems.filter((stock) => `${stock.name} ${stock.sku}`.toLowerCase().includes(query))
+                    : stockItems
+                  const suggestions = filteredProducts.slice(0, 6)
+                  const selectStock = (stock: StockItem) => {
+                    updateSaleItemRow(index, {
+                      productId: stock.id,
+                      unitPrice: stock.price,
+                      discount: 0,
+                      searchName: stock.name,
+                      customName: '',
+                      isCustom: false,
+                    })
+                    setActiveProductSearch(null)
+                  }
+                  const handleProductSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+                    if (event.key !== 'Enter') return
+                    const firstAvailable = suggestions.find((stock) => {
+                      const suggestionReserved = reservedByEditingSale(stock.id)
+                      return stock.quantity + suggestionReserved > 0
+                    })
+                    if (!firstAvailable) return
+                    event.preventDefault()
+                    selectStock(firstAvailable)
+                  }
+                  const handleCustomNameChange = (value: string) => {
+                    updateSaleItemRow(index, {
+                      customName: value,
+                      searchName: value,
+                      productId: '',
+                      isCustom: true,
+                    })
+                  }
                   return (
-                    <div className="sale-item-row" key={`${item.productId}-${index}`}>
+                    <div className="sale-item-row" key={`${item.productId || 'custom'}-${index}`}>
                       <div className="sale-item-product">
                         <img
-                          src={product?.imageUrl ?? 'https://via.placeholder.com/80x80.png?text=Produto'}
-                          alt={product?.name ?? 'Produto'}
+                          src={isCustomItem ? customItemPlaceholder : product?.imageUrl ?? customItemPlaceholder}
+                          alt={isCustomItem ? 'Item personalizado' : product?.name ?? 'Produto'}
                         />
                         <div className="product-field">
-                          <span className="product-label">Produto</span>
-                          <select
-                            value={item.productId}
-                            onChange={(event) => {
-                              const nextProduct = stockItems.find((stock) => stock.id === event.target.value)
-                              updateSaleItemRow(index, {
-                                productId: event.target.value,
-                                unitPrice: nextProduct?.price ?? item.unitPrice,
-                                discount: 0,
-                              })
-                            }}
-                          >
-                            {stockItems.map((stock) => (
-                              <option key={stock.id} value={stock.id} disabled={stock.quantity <= 0}>
-                                {stock.name} — {stock.quantity} em estoque
-                              </option>
-                            ))}
-                          </select>
+                          <span className="product-label">{isCustomItem ? 'Item personalizado' : 'Produto'}</span>
+                          {isCustomItem ? (
+                            <>
+                              <input
+                                value={item.customName ?? ''}
+                                onChange={(event) => handleCustomNameChange(event.target.value)}
+                                placeholder="Descreva o item"
+                                autoComplete="off"
+                              />
+                              <span className="input-hint">Aguardará aprovação do administrador.</span>
+                            </>
+                          ) : (
+                            <>
+                              <input
+                                value={item.searchName ?? product?.name ?? ''}
+                                onFocus={() => setActiveProductSearch(index)}
+                                onBlur={() =>
+                                  setTimeout(() => setActiveProductSearch((prev) => (prev === index ? null : prev)), 150)
+                                }
+                                onChange={(event) =>
+                                  updateSaleItemRow(index, {
+                                    searchName: event.target.value,
+                                  })
+                                }
+                                placeholder="Nome ou SKU"
+                                autoComplete="off"
+                                onKeyDown={handleProductSearchKeyDown}
+                              />
+                              {activeProductSearch === index && (
+                                <div className="search-dropdown">
+                                  {suggestions.length ? (
+                                    suggestions.map((stock) => {
+                                      const suggestionReserved = reservedByEditingSale(stock.id)
+                                      const suggestionAvailable = stock.quantity + suggestionReserved
+                                      return (
+                                        <button
+                                          type="button"
+                                          key={stock.id}
+                                          disabled={suggestionAvailable <= 0}
+                                          onMouseDown={(event) => event.preventDefault()}
+                                          onClick={() => selectStock(stock)}
+                                        >
+                                          <strong>{stock.name}</strong>
+                                          <span>
+                                            {suggestionAvailable} em estoque · SKU {stock.sku}
+                                          </span>
+                                        </button>
+                                      )
+                                    })
+                                  ) : (
+                                    <p className="empty-state">Nenhum produto encontrado.</p>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="sale-item-fields">
@@ -4646,7 +5204,11 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                             }}
                             placeholder="0"
                           />
-                          <span className="input-hint">Disponível: {product?.quantity ?? 0}</span>
+                          {isCustomItem ? (
+                            <span className="input-hint">Sem controle de estoque</span>
+                          ) : (
+                            <span className="input-hint">Disponível: {availableQuantity}</span>
+                          )}
                         </label>
                         <label>
                           Preço unitário (R$)
@@ -4850,7 +5412,13 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
                     !paymentBalanced
                   }
                 >
-                  {saleModalLoading ? 'Registrando...' : 'Confirmar venda'}
+                  {saleModalLoading
+                    ? editingSale
+                      ? 'Salvando...'
+                      : 'Registrando...'
+                    : editingSale
+                      ? 'Salvar alterações'
+                      : 'Confirmar venda'}
                 </button>
               </div>
             </form>
@@ -5018,6 +5586,69 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {editProductModal && (
+        <div className="modal-backdrop" onClick={closeEditProductModal}>
+          <form className="modal edit-product-modal" onClick={(event) => event.stopPropagation()} onSubmit={handleEditProductSubmit}>
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Editar produto</p>
+                <h2>{editProductModal.name}</h2>
+                <p className="hero-sub">Atualize valores e imagem para manter o catálogo alinhado.</p>
+              </div>
+              <button type="button" className="text-button" onClick={closeEditProductModal}>
+                Fechar
+              </button>
+            </div>
+            <div className="edit-product-grid">
+              <label>
+                Valor unitário (R$)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editProductForm.price}
+                  onChange={(event) => setEditProductForm((prev) => ({ ...prev, price: event.target.value }))}
+                />
+              </label>
+              <label>
+                Custo fábrica (R$)
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={editProductForm.factoryCost}
+                  onChange={(event) => setEditProductForm((prev) => ({ ...prev, factoryCost: event.target.value }))}
+                />
+              </label>
+            </div>
+            <label className="file-field">
+              Foto do produto
+              <input type="file" accept="image/*" onChange={handleEditProductImageUpload} />
+            </label>
+            {editProductPreview && (
+              <div className="edit-product-preview">
+                <img src={editProductPreview} alt="Prévia do produto" />
+                <button type="button" className="ghost" onClick={() => {
+                  setEditProductPreview(editProductModal.imageUrl)
+                  setEditProductForm((prev) => ({ ...prev, image: editProductModal.imageUrl }))
+                }}>
+                  Reverter para imagem atual
+                </button>
+              </div>
+            )}
+            {editProductError && <p className="login-error">{editProductError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="ghost" onClick={closeEditProductModal} disabled={editProductLoading}>
+                Cancelar
+              </button>
+              <button className="primary" type="submit" disabled={editProductLoading}>
+                {editProductLoading ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
