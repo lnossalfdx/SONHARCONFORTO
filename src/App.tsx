@@ -3650,7 +3650,6 @@ const focusInventoryPanel = (productId?: string) => {
             {!stockLoading &&
               !stockError &&
               filteredStock.map((item) => {
-                const totalUnits = item.quantity + item.reserved
                 const isExpanded = expandedStockId === item.id
                 return (
                   <div className={`stock-card ${isExpanded ? 'expanded' : ''}`} key={item.id}>
