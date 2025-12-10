@@ -3651,10 +3651,7 @@ const focusInventoryPanel = (productId?: string) => {
               !stockError &&
               filteredStock.map((item) => {
                 const totalUnits = item.quantity + item.reserved
-                const reservedPercent = totalUnits ? Math.round((item.reserved / totalUnits) * 100) : 0
-                const canRemove = item.quantity === 0 && item.reserved === 0
                 const isExpanded = expandedStockId === item.id
-                const hasHistory = stockMovements.some((movement) => movement.productId === item.id)
                 return (
                   <div className={`stock-card ${isExpanded ? 'expanded' : ''}`} key={item.id}>
                     <button type="button" className="stock-card-summary" onClick={() => toggleStockCard(item.id)}>
