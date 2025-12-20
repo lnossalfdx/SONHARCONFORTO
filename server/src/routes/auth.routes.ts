@@ -1,11 +1,8 @@
 import { Router } from 'express'
-import jwt from 'jsonwebtoken'
 import { z } from 'zod'
-import { prisma } from '../config/prisma.js'
-import { comparePassword, hashPassword } from '../utils/password.js'
-import { env } from '../config/env.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { roleGuard } from '../middleware/roleGuard.js'
+import { supabase } from '../lib/supabase.js'
 
 const router = Router()
 
@@ -16,36 +13,37 @@ const loginSchema = z.object({
 
 router.post('/login', async (request, response) => {
   const credentials = loginSchema.parse(request.body)
-  const user = await prisma.user.findUnique({ where: { email: credentials.email } })
-  if (!user || !user.active) {
-    return response.status(401).json({ message: 'Credenciais inválidas.' })
-  }
-  const validPassword = await comparePassword(credentials.password, user.passwordHash)
-  if (!validPassword) {
-    return response.status(401).json({ message: 'Credenciais inválidas.' })
-  }
-
-  const token = jwt.sign({ role: user.role }, env.jwtSecret, {
-    subject: user.id,
-    expiresIn: '12h',
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: credentials.email,
+    password: credentials.password,
   })
-
+  if (error || !data.session || !data.user) {
+    return response.status(401).json({ message: 'Credenciais inválidas.' })
+  }
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('id, name, email, role, phone, active')
+    .eq('id', data.user.id)
+    .single()
+  if (profileError || !profile) {
+    return response.status(403).json({ message: 'Perfil não localizado.' })
+  }
+  if (profile.active === false) {
+    return response.status(403).json({ message: 'Usuário desativado.' })
+  }
   return response.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      phone: user.phone,
-      active: user.active,
-    },
+    token: data.session.access_token,
+    user: profile,
   })
 })
 
 router.get('/me', authMiddleware, async (request, response) => {
-  const me = await prisma.user.findUnique({ where: { id: request.user!.id } })
-  if (!me) {
+  const { data: me, error } = await supabase
+    .from('users')
+    .select('id, name, email, phone, role, active')
+    .eq('id', request.user!.id)
+    .single()
+  if (error || !me) {
     return response.status(404).json({ message: 'Usuário não encontrado.' })
   }
   return response.json({
@@ -67,15 +65,39 @@ const createUserSchema = z.object({
 
 router.post('/invite', authMiddleware, roleGuard('admin'), async (request, response) => {
   const payload = createUserSchema.parse(request.body)
-  const exists = await prisma.user.findUnique({ where: { email: payload.email } })
-  if (exists) {
+  const { data: existing } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', payload.email)
+    .maybeSingle()
+  if (existing) {
     return response.status(400).json({ message: 'E-mail já está em uso.' })
   }
   const tempPassword = `crm-${Math.random().toString(36).slice(2, 8)}`
-  const passwordHash = await hashPassword(tempPassword)
-  const user = await prisma.user.create({
-    data: { ...payload, passwordHash },
+  const { data: createdUser, error: authError } = await supabase.auth.admin.createUser({
+    email: payload.email,
+    password: tempPassword,
+    email_confirm: true,
   })
+  if (authError || !createdUser.user) {
+    return response.status(400).json({ message: authError?.message ?? 'Não foi possível criar usuário.' })
+  }
+  const { data: user, error: insertError } = await supabase
+    .from('users')
+    .insert({
+      id: createdUser.user.id,
+      name: payload.name,
+      email: payload.email,
+      phone: payload.phone ?? null,
+      role: payload.role,
+      active: true,
+      passwordHash: 'supabase-managed',
+    })
+    .select('id, name, email, role, phone, active')
+    .single()
+  if (insertError || !user) {
+    return response.status(500).json({ message: insertError?.message ?? 'Falha ao salvar perfil.' })
+  }
   return response.status(201).json({
     user,
     tempPassword,

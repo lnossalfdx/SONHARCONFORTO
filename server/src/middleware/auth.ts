@@ -1,8 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
-import jwt from 'jsonwebtoken'
-import { env } from '../config/env.js'
+import { supabase } from '../lib/supabase.js'
 
-export const authMiddleware = (request: Request, response: Response, next: NextFunction) => {
+export const authMiddleware = async (request: Request, response: Response, next: NextFunction) => {
   const authHeader = request.headers.authorization
   if (!authHeader) {
     return response.status(401).json({ message: 'Token não fornecido.' })
@@ -13,11 +12,25 @@ export const authMiddleware = (request: Request, response: Response, next: NextF
     return response.status(401).json({ message: 'Token inválido.' })
   }
 
-  try {
-    const payload = jwt.verify(token, env.jwtSecret) as { sub: string; role: string }
-    request.user = { id: payload.sub, role: payload.role as any }
-    return next()
-  } catch (error) {
+  const { data, error } = await supabase.auth.getUser(token)
+  if (error || !data.user) {
     return response.status(401).json({ message: 'Sessão expirada. Faça login novamente.' })
   }
+
+  const { data: dbUser, error: dbError } = await supabase
+    .from('users')
+    .select('id, role, active')
+    .eq('id', data.user.id)
+    .single()
+
+  if (dbError || !dbUser) {
+    return response.status(403).json({ message: 'Usuário não autorizado.' })
+  }
+
+  if (dbUser.active === false) {
+    return response.status(403).json({ message: 'Usuário desativado.' })
+  }
+
+  request.user = { id: dbUser.id, role: dbUser.role as any }
+  return next()
 }

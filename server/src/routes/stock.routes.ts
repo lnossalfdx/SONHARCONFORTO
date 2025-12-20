@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { prisma } from '../config/prisma.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { roleGuard } from '../middleware/roleGuard.js'
+import { supabase } from '../lib/supabase.js'
 
 const router = Router()
 
@@ -41,17 +41,16 @@ const generateSku = () => `SKU-${Math.floor(Math.random() * 90000 + 10000)}`
 router.get('/', authMiddleware, async (request, response) => {
   const isAdmin = request.user?.role === 'admin'
   const { search } = request.query
-  const products = await prisma.product.findMany({
-    where: search
-      ? {
-          OR: [
-            { name: { contains: String(search), mode: 'insensitive' } },
-            { sku: { contains: String(search), mode: 'insensitive' } },
-          ],
-        }
-      : undefined,
-    orderBy: { createdAt: 'desc' },
-  })
+  const normalizedSearch = typeof search === 'string' ? search.trim() : ''
+  let query = supabase.from('products').select('*').order('createdAt', { ascending: false })
+  if (normalizedSearch) {
+    const pattern = `%${normalizedSearch}%`
+    query = query.or(`name.ilike.${pattern},sku.ilike.${pattern}`)
+  }
+  const { data: products, error } = await query
+  if (error) {
+    return response.status(500).json({ message: error.message })
+  }
   const payload = isAdmin ? products : products.map((product) => sanitizeProductFactoryCost(product, false))
   return response.json(payload)
 })
@@ -60,24 +59,25 @@ router.post('/', authMiddleware, roleGuard('admin'), async (request, response) =
   const payload = productSchema.parse(request.body)
   const { sku, ...rest } = payload
   const normalizedSku = sku ?? generateSku()
-  const product = await prisma.product.create({
-    data: { ...rest, sku: normalizedSku, reserved: 0 },
-  })
-  return response.status(201).json(product)
+  const { data, error } = await supabase
+    .from('products')
+    .insert({ ...rest, sku: normalizedSku, reserved: 0 })
+    .select('*')
+    .single()
+  if (error || !data) {
+    return response.status(400).json({ message: error?.message ?? 'Não foi possível criar produto.' })
+  }
+  return response.status(201).json(data)
 })
 
 router.put('/:id', authMiddleware, roleGuard('admin'), async (request, response) => {
   const payload = updateSchema.parse(request.body)
   const { id } = request.params
-  try {
-    const product = await prisma.product.update({
-      where: { id },
-      data: payload,
-    })
-    return response.json(product)
-  } catch (error) {
-    return response.status(404).json({ message: 'Produto não encontrado.' })
+  const { data, error } = await supabase.from('products').update(payload).eq('id', id).select('*').single()
+  if (error || !data) {
+    return response.status(404).json({ message: error?.message ?? 'Produto não encontrado.' })
   }
+  return response.json(data)
 })
 
 const movementSchema = z.object({
@@ -89,29 +89,38 @@ const movementSchema = z.object({
 router.post('/:id/movements', authMiddleware, roleGuard('admin'), async (request, response) => {
   const payload = movementSchema.parse(request.body)
   const { id } = request.params
-  const product = await prisma.product.findUnique({ where: { id } })
-  if (!product) return response.status(404).json({ message: 'Produto não encontrado.' })
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('id, quantity')
+    .eq('id', id)
+    .single()
+  if (productError || !product) return response.status(404).json({ message: 'Produto não encontrado.' })
 
   if (payload.type === 'saida' && product.quantity < payload.amount) {
     return response.status(400).json({ message: 'Quantidade em estoque insuficiente para saída.' })
   }
 
   const delta = payload.type === 'entrada' ? payload.amount : -payload.amount
-  const [updated] = await prisma.$transaction([
-    prisma.product.update({
-      where: { id },
-      data: { quantity: product.quantity + delta },
-    }),
-    prisma.stockMovement.create({
-      data: {
-        productId: id,
-        userId: request.user!.id,
-        type: payload.type,
-        amount: payload.amount,
-        note: payload.note,
-      },
-    }),
-  ])
+  const nextQuantity = product.quantity + delta
+  const { data: updated, error: updateError } = await supabase
+    .from('products')
+    .update({ quantity: nextQuantity })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (updateError || !updated) {
+    return response.status(400).json({ message: updateError?.message ?? 'Falha ao atualizar estoque.' })
+  }
+  const { error: movementError } = await supabase.from('stock_movements').insert({
+    productId: id,
+    userId: request.user!.id,
+    type: payload.type,
+    amount: payload.amount,
+    note: payload.note ?? null,
+  })
+  if (movementError) {
+    return response.status(400).json({ message: movementError.message })
+  }
 
   return response.json(updated)
 })
@@ -119,11 +128,17 @@ router.post('/:id/movements', authMiddleware, roleGuard('admin'), async (request
 router.get('/movements', authMiddleware, async (request, response) => {
   const isAdmin = request.user?.role === 'admin'
   const { type } = request.query
-  const movements = await prisma.stockMovement.findMany({
-    where: type ? { type: type === 'entrada' ? 'entrada' : 'saida' } : undefined,
-    include: { product: true },
-    orderBy: { createdAt: 'desc' },
-  })
+  let query = supabase
+    .from('stock_movements')
+    .select('*, product:productId(*)')
+    .order('createdAt', { ascending: false })
+  if (type === 'entrada' || type === 'saida') {
+    query = query.eq('type', type)
+  }
+  const { data: movements, error } = await query
+  if (error) {
+    return response.status(500).json({ message: error.message })
+  }
   const payload = isAdmin
     ? movements
     : movements.map((movement) => ({
@@ -135,12 +150,19 @@ router.get('/movements', authMiddleware, async (request, response) => {
 
 router.delete('/:id', authMiddleware, roleGuard('admin'), async (request, response) => {
   const { id } = request.params
-  const product = await prisma.product.findUnique({ where: { id } })
-  if (!product) return response.status(404).json({ message: 'Produto não encontrado.' })
-  if (product.quantity > 0 || product.reserved > 0) {
+  const { data: product, error } = await supabase
+    .from('products')
+    .select('id, quantity, reserved')
+    .eq('id', id)
+    .single()
+  if (error || !product) return response.status(404).json({ message: 'Produto não encontrado.' })
+  if ((product.quantity ?? 0) > 0 || (product.reserved ?? 0) > 0) {
     return response.status(400).json({ message: 'Só é possível remover produtos zerados.' })
   }
-  await prisma.product.delete({ where: { id } })
+  const { error: deleteError } = await supabase.from('products').delete().eq('id', id)
+  if (deleteError) {
+    return response.status(400).json({ message: deleteError.message })
+  }
   return response.status(204).send()
 })
 

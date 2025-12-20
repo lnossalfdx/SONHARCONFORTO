@@ -1,18 +1,21 @@
 # Sonhar Conforto CRM
 
-Aplicação completa (frontend Vite + backend Node/Express + Postgres via Prisma) para operação do CRM Sonhar Conforto: pipeline de vendas, estoque, clientes, assistências, entregas e financeiro.
+Aplicação completa (frontend Vite + backend Node/Express) para operação do CRM Sonhar Conforto. Toda a camada de dados roda exclusivamente no Supabase Cloud (PostgreSQL gerenciado + Auth).
 
 ## Requisitos
 
 - Node.js 20+
 - npm 10+
-- PostgreSQL 16 (ou container Docker compatível)
+- Projeto Supabase com:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Estrutura
 
 ```
 .
-├── server        # API (Express + Prisma)
+├── server        # API (Express)
 ├── src           # Frontend React/Vite
 ├── public        # Assets do front
 ├── dist          # Build do front (gerado)
@@ -21,39 +24,49 @@ Aplicação completa (frontend Vite + backend Node/Express + Postgres via Prisma
 
 ## Variáveis de ambiente
 
-- Frontend: `.env.local` (ou `.env`) – exemplo em `.env.example`
+O repositório inclui exemplos (`.env.example` na raiz e `server/.env.example`).
+
+- Frontend `.env` / `.env.local` *(opcional, o app busca do backend caso não definido)*
   ```
   VITE_API_URL=https://seu-dominio/api
+  VITE_SUPABASE_URL=https://<ID>.supabase.co
+  VITE_SUPABASE_ANON_KEY=chave-anon-gerada-pelo-Supabase
   ```
 
-- Backend: `server/.env` – exemplo em `server/.env.example`
+- Backend `server/.env`
   ```
-  DATABASE_URL="postgresql://USER:PASS@HOST:PORT/sonhar_conforto?schema=public"
-  JWT_SECRET="chave-bem-grande"
   PORT=3333
+  SUPABASE_URL=https://<ID>.supabase.co
+  SUPABASE_ANON_KEY=chave-anon-gerada-pelo-Supabase
+  SUPABASE_SERVICE_ROLE_KEY=chave-service-role
   ```
 
-## Banco de dados
+> **Importante:** apenas o backend usa a `SERVICE_ROLE_KEY`. Nunca exponha essa chave no frontend.
 
-```bash
-cd server
-# cria tabelas
-npm run prisma:migrate
-# gera seed com usuário admin (kemimarcondesblaze@gmail.com / Kema3030!)
-npm run prisma:seed
+As tabelas do Supabase devem seguir o schema utilizado pela API (users, clients, products, stock_movements, sales, sale_items, sale_payments, assistances, finance_expenses, monthly_goals etc.). Os dados passam a ser visíveis diretamente no painel Supabase. Para manter o código das vendas sequencial (VEN-0001, VEN-0002, ...), crie também a tabela `sale_counter` e a função `increment_sale_sequence` no SQL Editor:
+
+```sql
+create table if not exists public.sale_counter (
+  id integer primary key default 1,
+  current integer not null default 0
+);
+
+create or replace function public.increment_sale_sequence()
+returns integer
+language plpgsql
+as $$
+declare next_value integer;
+begin
+  insert into public.sale_counter (id, current)
+  values (1, 1)
+  on conflict (id) do update set current = public.sale_counter.current + 1
+  returning current into next_value;
+  return next_value;
+end;
+$$;
 ```
 
-Para ambiente local você pode usar Docker:
-
-```bash
-docker run -d --name sonhar-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=sonhar_conforto \
-  -p 6543:5432 postgres:16
-
-# .env deve apontar para porta 6543
-DATABASE_URL="postgresql://postgres:postgres@localhost:6543/sonhar_conforto?schema=public"
-```
+Essa função é chamada automaticamente pelo backend sempre que uma nova venda é criada.
 
 ## Rodando localmente
 
@@ -112,9 +125,7 @@ npm run build
 cd server
 npm install
 cp .env.example .env
-# editar .env com URL do Postgres e JWT_SECRET forte
-npm run prisma:migrate
-npm run prisma:seed
+# configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY vindos do projeto
 npm run build
 
 # Start API com PM2
@@ -165,13 +176,9 @@ Certifique-se de copiar a pasta `dist/` para `/var/www/sonhar-conforto/dist` (ou
 
 ## Scripts úteis
 
-- `npm run prisma:migrate` / `:seed` – manter schema sincronizado.
 - `npm run build` (front) / `npm run build && npm run start` (server) – builds de produção.
 - `pm2 restart sonhar-api` – reinicia backend após atualizar código.
 
-## Suporte rápido
+Para provisionar usuários utilize o painel Supabase (Auth) ou os endpoints `/auth/invite` e `/users/*`, sempre mediando pelo backend.
 
-- Usuário admin seed: `kemimarcondesblaze@gmail.com` / `Kema3030!`
-- Troque a senha no banco assim que subir em produção!
-
-Com isso o projeto fica pronto para ser enviado via git/rsync para a VPS. Basta seguir os comandos acima que o domínio apontado já serve o front + API.
+Com isso o projeto fica pronto para ser enviado via git/rsync para a VPS. Basta seguir os comandos acima e garantir que o Supabase esteja configurado com as tabelas e roles necessários.

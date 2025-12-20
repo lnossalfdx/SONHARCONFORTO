@@ -4,6 +4,7 @@ import { NumericFormat } from 'react-number-format'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import './App.css'
+import { getSupabaseClient } from './lib/supabase.ts'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3333/api'
 
@@ -459,6 +460,12 @@ const createAssistanceFormState = (salesList: Sale[]): {
 function App() {
   const [collapsed, setCollapsed] = useState(true)
   const [activePage, setActivePage] = useState<PageId>('dashboard')
+  const viewingDashboard = activePage === 'dashboard'
+  const viewingSleepLab = activePage === 'sleepLab'
+  const viewingStockPage = activePage === 'estoque'
+  const viewingDeliveries = activePage === 'entregas'
+  const viewingAssistances = activePage === 'assistencias'
+  const viewingFinance = activePage === 'financeiro'
   const [clients, setClients] = useState<Client[]>(initialClients)
   const [stockItems, setStockItems] = useState<StockItem[]>(initialStock)
   const [stockLoading, setStockLoading] = useState(false)
@@ -483,6 +490,8 @@ function App() {
   const [inventoryPanelOpen, setInventoryPanelOpen] = useState(false)
   const [inventorySubmitLoading, setInventorySubmitLoading] = useState(false)
   const [inventorySubmitError, setInventorySubmitError] = useState<string | null>(null)
+  const needsStockItems = viewingSleepLab || viewingStockPage || viewingDeliveries || saleModalOpen
+  const needsStockMovements = viewingStockPage || inventoryPanelOpen
   const emptyClientForm = {
     name: '',
     phone: '',
@@ -584,14 +593,19 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [assistanceDateStart, setAssistanceDateStart] = useState('')
   const [assistanceDateEnd, setAssistanceDateEnd] = useState('')
   const [assistanceConfirm, setAssistanceConfirm] = useState<Assistance | null>(null)
+  const needsAssistancesData = viewingAssistances || assistanceModal !== null || assistanceConfirm !== null
   const [userManagerOpen, setUserManagerOpen] = useState(false)
   const [userForm, setUserForm] = useState({ name: '', email: '', phone: '', role: 'seller' as UserRole })
   const [userManagerNotice, setUserManagerNotice] = useState<string | null>(null)
   const [userInviteTempPassword, setUserInviteTempPassword] = useState<string | null>(null)
   const [userActionError, setUserActionError] = useState<string | null>(null)
   const [userActionLoading, setUserActionLoading] = useState(false)
+  const needsUsersData = userManagerOpen && isAdmin
+  const needsMonthlyGoal = viewingDashboard || viewingFinance
+  const needsFinanceData = viewingFinance
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
-  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('token'))
+  const [sessionChecking, setSessionChecking] = useState(true)
+  const [authToken, setAuthToken] = useState<string | null>(null)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -603,13 +617,47 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const canRegisterSales = Boolean(currentUser)
   const canManageStock = isAdmin
 
+  const forceLogout = useCallback(() => {
+    setSessionUserId(null)
+    setAuthToken(null)
+    void getSupabaseClient()
+      .then((client) => client.auth.signOut())
+      .catch((error) => console.error('Falha ao finalizar sessão Supabase:', error))
+  }, [])
+
   const getAuthHeaders = (withJson = true) => {
-    const token = authToken ?? localStorage.getItem('token')
     const headers: Record<string, string> = {}
     if (withJson) headers['Content-Type'] = 'application/json'
-    if (token) headers.Authorization = `Bearer ${token}`
+    if (authToken) headers.Authorization = `Bearer ${authToken}`
     return headers
   }
+
+  useEffect(() => {
+    let isMounted = true
+    let subscription: { unsubscribe: () => void } | null = null
+    const bootstrap = async () => {
+      try {
+        const client = await getSupabaseClient()
+        const { data } = await client.auth.getSession()
+        if (isMounted) {
+          setAuthToken(data.session?.access_token ?? null)
+        }
+        const listener = client.auth.onAuthStateChange((_event, session) => {
+          if (isMounted) {
+            setAuthToken(session?.access_token ?? null)
+          }
+        })
+        subscription = listener.data.subscription
+      } catch (error) {
+        console.error('Erro ao inicializar autenticação com Supabase:', error)
+      }
+    }
+    void bootstrap()
+    return () => {
+      isMounted = false
+      subscription?.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -746,14 +794,22 @@ useEffect(() => {
   useEffect(() => {
     if (!authToken) {
       setStockItems([])
-      setStockMovements([])
       setStockError(null)
+      return
+    }
+    if (!needsStockItems) return
+    fetchStockFromApi()
+  }, [authToken, needsStockItems, fetchStockFromApi])
+
+  useEffect(() => {
+    if (!authToken) {
+      setStockMovements([])
       setStockMovementsError(null)
       return
     }
-    fetchStockFromApi()
+    if (!needsStockMovements) return
     fetchStockMovementsFromApi()
-  }, [authToken, fetchStockFromApi, fetchStockMovementsFromApi])
+  }, [authToken, needsStockMovements, fetchStockMovementsFromApi])
 
   const fetchSalesFromApi = useCallback(async () => {
     if (!authToken) return
@@ -819,11 +875,6 @@ useEffect(() => {
     }
   }, [authToken, isAdmin])
 
-  useEffect(() => {
-    if (!authToken || !isAdmin) return
-    fetchUsersFromApi()
-  }, [authToken, isAdmin, fetchUsersFromApi])
-
   const fetchFinanceSummaryFromApi = useCallback(async () => {
     if (!authToken || !isAdmin) return
     setFinanceSummaryLoading(true)
@@ -852,15 +903,12 @@ useEffect(() => {
   }, [authToken, financeDateStart, financeDateEnd, financePaymentFilter, isAdmin])
 
   useEffect(() => {
-    if (!authToken || !isAdmin) {
-      setFinanceSummary(null)
-      setFinanceSummaryError(null)
-      return
-    }
+    if (!authToken || !isAdmin || !needsFinanceData) return
     fetchFinanceSummaryFromApi()
   }, [
     authToken,
     isAdmin,
+    needsFinanceData,
     financeDateStart,
     financeDateEnd,
     financePaymentFilter,
@@ -897,13 +945,17 @@ useEffect(() => {
   }, [authToken, financeDateStart, financeDateEnd, financePaymentFilter, isAdmin])
 
   useEffect(() => {
-    if (!authToken || !isAdmin) {
-      setFinanceExpenses([])
-      setFinanceExpensesError(null)
-      return
-    }
+    if (!authToken || !isAdmin || !needsFinanceData) return
     fetchFinanceExpensesFromApi()
-  }, [authToken, isAdmin, financeDateStart, financeDateEnd, financePaymentFilter, fetchFinanceExpensesFromApi])
+  }, [
+    authToken,
+    isAdmin,
+    needsFinanceData,
+    financeDateStart,
+    financeDateEnd,
+    financePaymentFilter,
+    fetchFinanceExpensesFromApi,
+  ])
 
   const fetchMonthlyGoalFromApi = useCallback(async () => {
     if (!authToken) return
@@ -929,20 +981,21 @@ useEffect(() => {
   }, [authToken])
 
   useEffect(() => {
-    if (!authToken) {
-      setMonthlyGoal(null)
-      setMonthlyGoalError(null)
-      setMonthlyGoalFormValue(0)
+    if (!authToken || !needsMonthlyGoal) {
+      if (!authToken) {
+        setMonthlyGoal(null)
+        setMonthlyGoalError(null)
+        setMonthlyGoalFormValue(0)
+      }
       return
     }
     fetchMonthlyGoalFromApi()
-  }, [authToken, sales.length, fetchMonthlyGoalFromApi])
+  }, [authToken, needsMonthlyGoal, sales.length, fetchMonthlyGoalFromApi])
 
   useEffect(() => {
-    if (userManagerOpen && isAdmin) {
-      fetchUsersFromApi()
-    }
-  }, [userManagerOpen, isAdmin, fetchUsersFromApi])
+    if (!authToken || !needsUsersData) return
+    fetchUsersFromApi()
+  }, [authToken, needsUsersData, fetchUsersFromApi])
 
   const fetchAssistancesFromApi = useCallback(async () => {
     if (!authToken) return
@@ -973,20 +1026,22 @@ useEffect(() => {
       setAssistancesError(null)
       return
     }
+    if (!needsAssistancesData) return
     fetchAssistancesFromApi()
-  }, [authToken, fetchAssistancesFromApi])
+  }, [authToken, needsAssistancesData, fetchAssistancesFromApi])
 
   useEffect(() => {
-    const token = authToken ?? localStorage.getItem('token')
-    if (!token) {
+    if (!authToken) {
       setSessionUserId(null)
+      setSessionChecking(false)
       return
     }
     let isActive = true
+    setSessionChecking(true)
     const fetchSession = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         })
         if (!response.ok) {
           throw new Error('Sessão expirada. Faça login novamente.')
@@ -1004,16 +1059,18 @@ useEffect(() => {
         setSessionUserId(normalizedUser.id)
       } catch (error) {
         console.error(error)
-        localStorage.removeItem('token')
-        setAuthToken(null)
-        setSessionUserId(null)
+        forceLogout()
+      } finally {
+        if (isActive) {
+          setSessionChecking(false)
+        }
       }
     }
     fetchSession()
     return () => {
       isActive = false
     }
-  }, [authToken])
+  }, [authToken, forceLogout])
 
   useEffect(() => {
     if (!isAdmin && activePage === 'financeiro') {
@@ -1040,7 +1097,10 @@ useEffect(() => {
 
   const todayIso = new Date().toISOString().slice(0, 10)
   const todayRevenue = sales
-    .filter((sale) => !sale.requiresApproval && sale.status !== 'cancelada' && sale.createdAt.slice(0, 10) === todayIso)
+    .filter(
+      (sale) =>
+        !sale.requiresApproval && sale.status === 'entregue' && sale.createdAt.slice(0, 10) === todayIso,
+    )
     .reduce((sum, sale) => sum + sale.value, 0)
   const pendingDeliveries = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
   const awaitingApproval = sales.filter((sale) => sale.requiresApproval).length
@@ -1585,34 +1645,14 @@ const focusInventoryPanel = (productId?: string) => {
     event.preventDefault()
     setLoginError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail.trim(), password: loginPassword }),
+      const client = await getSupabaseClient()
+      const { error } = await client.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
       })
-      if (!response.ok) {
+      if (error) {
         throw new Error('Credenciais inválidas. Confira e tente novamente.')
       }
-      const data = await response.json()
-      const normalizedUser: User = {
-        id: data.user.id,
-        name: data.user.name ?? 'Usuário',
-        email: data.user.email,
-        role: data.user.role,
-        phone: data.user.phone ?? '',
-        password: '',
-        active: data.user.active ?? true,
-      }
-      setUsers((prev) => {
-        const exists = prev.some((user) => user.id === normalizedUser.id)
-        if (exists) {
-          return prev.map((user) => (user.id === normalizedUser.id ? normalizedUser : user))
-        }
-        return [...prev, normalizedUser]
-      })
-      setSessionUserId(normalizedUser.id)
-      localStorage.setItem('token', data.token)
-      setAuthToken(data.token)
       setLoginEmail('')
       setLoginPassword('')
       setLoginError(null)
@@ -1623,10 +1663,8 @@ const focusInventoryPanel = (productId?: string) => {
   }
 
   const handleLogout = () => {
-    setSessionUserId(null)
     setProfileModalOpen(false)
-    localStorage.removeItem('token')
-    setAuthToken(null)
+    forceLogout()
   }
 
   const closeClientModal = () => {
@@ -2309,9 +2347,7 @@ const focusInventoryPanel = (productId?: string) => {
       }
       setUsers((prev) => prev.filter((user) => user.id !== userId))
       if (sessionUserId === userId) {
-        setSessionUserId(null)
-        localStorage.removeItem('token')
-        setAuthToken(null)
+        forceLogout()
       }
       setUserManagerNotice(`Usuário ${target.name} removido.`)
     } catch (error) {
@@ -2372,9 +2408,7 @@ const focusInventoryPanel = (productId?: string) => {
       const updated = normalizeUserFromApi(await response.json())
       setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)))
       if (updated.id === sessionUserId && !updated.active) {
-        setSessionUserId(null)
-        localStorage.removeItem('token')
-        setAuthToken(null)
+        forceLogout()
       }
     } catch (error) {
       console.error(error)
@@ -2393,18 +2427,17 @@ const focusInventoryPanel = (productId?: string) => {
     const nowDate = new Date()
     const currentMonth = nowDate.getMonth()
     const currentYear = nowDate.getFullYear()
-    const monthlySales = sales.filter((sale) => {
-      if (sale.status === 'cancelada' || sale.requiresApproval) return false
+    const monthlyOrdersAll = sales.filter((sale) => {
+      if (sale.requiresApproval || sale.status === 'cancelada') return false
       const saleDate = new Date(sale.createdAt)
       return saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear
     })
+    const monthlySales = monthlyOrdersAll.filter((sale) => sale.status === 'entregue')
     const monthlyRevenue = monthlySales.reduce((sum, sale) => sum + sale.value, 0)
     const monthlyOrders = monthlySales.length
     const averageTicket = monthlyOrders ? monthlyRevenue / monthlyOrders : 0
-    const conversionRate = monthlyOrders
-      ? Math.round(
-          (monthlySales.filter((sale) => sale.status === 'entregue').length / monthlyOrders) * 100,
-        )
+    const conversionRate = monthlyOrdersAll.length
+      ? Math.round((monthlySales.length / monthlyOrdersAll.length) * 100)
       : null
     const pendingOrders = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
     const deliveredOrders = sales.filter((sale) => sale.status === 'entregue').length
@@ -2698,28 +2731,33 @@ const focusInventoryPanel = (productId?: string) => {
 
   const renderLogin = () => (
     <div className="login-page">
-      <div className="login-snowflakes">
-        {Array.from({ length: 18 }).map((_, index) => (
-          <span key={index} />
-        ))}
+      <div className="login-backdrop">
+        <span className="login-aurora aurora-one" />
+        <span className="login-aurora aurora-two" />
+        <span className="login-aurora aurora-three" />
       </div>
       <div className="login-shell">
         <div className="login-hero-copy">
-          <p className="eyebrow">Sonhar Conforto · Especial de Natal</p>
-          <h1>Bem-vindo ao cockpit festivo da sua operação.</h1>
+          <p className="eyebrow">Sonhar Conforto · Operação integrada</p>
+          <h1>Conecte-se ao painel que move sua equipe.</h1>
           <p>
-            Monitore vendas, assistências e estoque celebrando a temporada: dashboards iluminados, dados protegidos e
-            a tranquilidade que só um Natal organizado traz.
+            Dados em tempo real, estoque inteligente e entregas monitoradas com uma identidade mais leve e moderna.
+            Sem temas sazonais — apenas o foco no que importa: produtividade.
           </p>
-          <div className="login-tree">
-            <span className="tree-star">★</span>
-            <span className="tree-layer layer-1" />
-            <span className="tree-layer layer-2" />
-            <span className="tree-layer layer-3" />
-            <span className="tree-trunk" />
-            <span className="tree-bauble red" />
-            <span className="tree-bauble gold" />
-            <span className="tree-bauble blue" />
+          <div className="login-hero-visual">
+            <span className="login-orbit orbit-one" />
+            <span className="login-orbit orbit-two" />
+            <span className="login-orbit orbit-three" />
+            <div className="login-hero-stat primary">
+              <p className="eyebrow">Disponibilidade</p>
+              <strong>99,96%</strong>
+              <span>Infra monitorada 24/7</span>
+            </div>
+            <div className="login-hero-stat secondary">
+              <p className="eyebrow">Atualizações</p>
+              <strong>+48</strong>
+              <span>Itens sincronizados hoje</span>
+            </div>
           </div>
         </div>
         <div className="login-card">
@@ -4807,6 +4845,33 @@ const focusInventoryPanel = (productId?: string) => {
     }
   };
 
+  const globalLoading =
+    Boolean(currentUser) &&
+    (clientsLoading ||
+      stockLoading ||
+      stockMovementsLoading ||
+      salesLoading ||
+      assistancesLoading ||
+      financeSummaryLoading ||
+      financeExpensesLoading ||
+      monthlyGoalLoading ||
+      usersLoading ||
+      inventorySubmitLoading ||
+      saleModalLoading ||
+      assistanceSubmitLoading ||
+      assistanceStatusLoading)
+
+  if (sessionChecking) {
+    return (
+      <div className="login-page">
+        <div className="login-loading">
+          <div className="loading-spinner" />
+          <p>Carregando sessão...</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!currentUser) {
     return renderLogin()
   }
@@ -4815,6 +4880,12 @@ const focusInventoryPanel = (productId?: string) => {
 
   return (
     <>
+    {globalLoading && (
+      <div className="loading-overlay">
+        <div className="loading-spinner" />
+        <p>Carregando...</p>
+      </div>
+    )}
     <div className="page">
       <div className={`layout ${collapsed ? 'is-collapsed' : ''}`}>
         <aside

@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import type { UserRole } from '@prisma/client'
+import type { UserRole } from '../types.js'
 
 export const roleGuard = (allowed: UserRole | UserRole[]) => {
   const roles = Array.isArray(allowed) ? allowed : [allowed]

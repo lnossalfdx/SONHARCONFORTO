@@ -1,6 +1,6 @@
 import 'dotenv/config'
 
-const requiredVars = ['DATABASE_URL', 'JWT_SECRET'] as const
+const requiredVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY'] as const
 
 for (const variable of requiredVars) {
   if (!process.env[variable]) {
@@ -10,6 +10,7 @@ for (const variable of requiredVars) {
 
 export const env = {
   port: Number(process.env.PORT ?? 3333),
-  databaseUrl: process.env.DATABASE_URL!,
-  jwtSecret: process.env.JWT_SECRET!,
+  supabaseUrl: process.env.SUPABASE_URL!,
+  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  supabaseAnonKey: process.env.SUPABASE_ANON_KEY!,
 }
