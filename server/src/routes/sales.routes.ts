@@ -393,7 +393,7 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
     return response.status(400).json({ message: 'Pagamentos não conferem com o total do pedido.' })
   }
 
-  const releaseItems = sale.items.map((item: any) => ({
+  const releaseItems: SaleItemInput[] = sale.items.map((item: any) => ({
     productId: item.productId,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
@@ -456,7 +456,7 @@ router.post('/:id/cancel', roleGuard('admin'), async (request, response) => {
     return response.json(sale)
   }
 
-  const releaseItems = sale.items.map((item: any) => ({
+  const releaseItems: SaleItemInput[] = sale.items.map((item: any) => ({
     productId: item.productId,
     quantity: item.quantity,
     unitPrice: item.unitPrice,

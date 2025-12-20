@@ -600,9 +600,6 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [userInviteTempPassword, setUserInviteTempPassword] = useState<string | null>(null)
   const [userActionError, setUserActionError] = useState<string | null>(null)
   const [userActionLoading, setUserActionLoading] = useState(false)
-  const needsUsersData = userManagerOpen && isAdmin
-  const needsMonthlyGoal = viewingDashboard || viewingFinance
-  const needsFinanceData = viewingFinance
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [sessionChecking, setSessionChecking] = useState(true)
   const [authToken, setAuthToken] = useState<string | null>(null)
@@ -611,6 +608,9 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [loginError, setLoginError] = useState<string | null>(null)
   const currentUser = sessionUserId ? users.find((user) => user.id === sessionUserId && user.active) ?? null : null
   const isAdmin = currentUser?.role === 'admin'
+  const needsUsersData = userManagerOpen && isAdmin
+  const needsMonthlyGoal = viewingDashboard || viewingFinance
+  const needsFinanceData = viewingFinance
   const canRegisterClients = Boolean(currentUser)
   const canEditClients = isAdmin
   const canDeleteClients = isAdmin
