@@ -63,13 +63,41 @@ type SaleItem = {
   searchName?: string
 }
 
-type PaymentMethod = 'PIX' | 'Cartão de crédito' | 'Cartão de débito' | 'Dinheiro'
+type PaymentMethod =
+  | 'PIX'
+  | 'Cartão de crédito'
+  | 'Cartão de débito'
+  | 'Dinheiro'
+  | 'Pagar na entrega'
+  | 'Semanal na loja'
 
 type SalePayment = {
   id: string
   method: PaymentMethod
   amount: number
   installments: number
+  weeklyWeeks?: number
+  weeklyAmount?: number
+  weeklyPlan?: WeeklyPlan
+}
+
+// Controle de pagamentos semanais (front-only).
+type WeeklyInstallment = {
+  week: number
+  paidAmount: number
+  paidAt?: string
+}
+
+type WeeklyPlan = {
+  weeks: number
+  weeklyAmount: number
+  payments: WeeklyInstallment[]
+}
+
+type PaymentOverride = {
+  paymentId: string
+  method: PaymentMethod
+  weeklyPlan?: WeeklyPlan
 }
 
 type Sale = {
@@ -184,12 +212,17 @@ const mapPaymentMethodFromApi = (method: string): PaymentMethod => {
       return 'Cartão de débito'
     case 'DINHEIRO':
       return 'Dinheiro'
+    case 'PAGAMENTO_ENTREGA':
+      return 'Pagar na entrega'
+    case 'SEMANAL_LOJA':
+      return 'Semanal na loja'
     default:
       return 'PIX'
   }
 }
 
-const normalizeSale = (sale: any): Sale => ({
+const normalizeSale = (sale: any): Sale => {
+  const normalized: Sale = {
   backendId: sale.id,
   id: sale.publicId ?? sale.id,
   clientId: sale.client?.id ?? sale.clientId ?? '',
@@ -232,7 +265,9 @@ const normalizeSale = (sale: any): Sale => ({
   requiresApproval: Boolean(sale.requiresApproval),
   createdAt: sale.createdAt ?? new Date().toISOString(),
   deliveryDate: sale.deliveryDate ? sale.deliveryDate.slice(0, 10) : '',
-})
+  }
+  return applyPaymentOverrides(normalized)
+}
 
 const DEFAULT_PRODUCT_IMAGE =
   'https://images.unsplash.com/photo-1616594039964-42d379c6810d?auto=format&fit=crop&w=400&q=60'
@@ -295,6 +330,90 @@ const normalizeAssistance = (assistance: any): Assistance => ({
   owner: assistance.owner?.name ?? assistance.ownerName ?? 'Equipe Sonhar',
 })
 
+const getSaleItemKey = (item: SaleItem, index: number) => item.productId ?? `custom:${index}`
+
+const getSaleItemLabel = (item: SaleItem) =>
+  item.productName ?? item.customName ?? item.searchName ?? 'Item personalizado'
+
+const parseSaleCode = (value: string) => {
+  const digits = value.replace(/\D/g, '')
+  return digits ? Number(digits) : null
+}
+
+const isPublicSaleCode = (value: string) => /^VEN-\d+$/i.test(value)
+
+const getLocalStartOfDayIso = (value: string) => {
+  if (!value) return ''
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return ''
+  return new Date(year, month - 1, day, 0, 0, 0, 0).toISOString()
+}
+
+const getLocalEndOfDayIso = (value: string) => {
+  if (!value) return ''
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return ''
+  return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString()
+}
+
+const PAYMENT_OVERRIDE_STORAGE_KEY = 'sonhar:payment-overrides'
+
+const loadPaymentOverrides = (): Record<string, PaymentOverride[]> => {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(PAYMENT_OVERRIDE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const savePaymentOverrides = (overrides: Record<string, PaymentOverride[]>) => {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(PAYMENT_OVERRIDE_STORAGE_KEY, JSON.stringify(overrides))
+}
+
+const buildWeeklyPlan = (
+  weeks: number,
+  weeklyAmount: number,
+  existing?: WeeklyPlan,
+): WeeklyPlan => {
+  const safeWeeks = Math.max(1, Number(weeks) || 1)
+  const safeAmount = Math.max(0, Number(weeklyAmount) || 0)
+  const payments = Array.from({ length: safeWeeks }, (_, index) => {
+    const week = index + 1
+    const existingPayment = existing?.payments.find((payment) => payment.week === week)
+    return {
+      week,
+      paidAmount: existingPayment?.paidAmount ?? 0,
+      paidAt: existingPayment?.paidAt,
+    }
+  })
+  return { weeks: safeWeeks, weeklyAmount: safeAmount, payments }
+}
+
+const computeWeeklyTotal = (weeks?: number, weeklyAmount?: number) => {
+  if (!weeks || !weeklyAmount) return 0
+  return Math.max(0, weeks) * Math.max(0, weeklyAmount)
+}
+
+const applyPaymentOverrides = (sale: Sale) => {
+  const overrides = loadPaymentOverrides()[sale.id] ?? []
+  if (!overrides.length) return sale
+  const payments = sale.payments.map((payment) => {
+    const override = overrides.find((item) => item.paymentId === payment.id)
+    if (!override) return payment
+    return {
+      ...payment,
+      method: override.method,
+      weeklyPlan: override.weeklyPlan,
+    }
+  })
+  return { ...sale, payments }
+}
+
 const normalizeUserFromApi = (user: any): User => ({
   id: user.id,
   name: user.name ?? '',
@@ -314,7 +433,14 @@ const navItems: NavItem[] = [
   { id: 'financeiro', label: 'Financeiro', icon: 'M4 4h16v16H4z M8 8h2v8H8zm6 2h2v6h-2z' },
 ]
 
-const paymentMethods: PaymentMethod[] = ['PIX', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro']
+const paymentMethods: PaymentMethod[] = [
+  'PIX',
+  'Cartão de crédito',
+  'Cartão de débito',
+  'Dinheiro',
+  'Pagar na entrega',
+  'Semanal na loja',
+]
 
 const paymentMethodLabelFromKey = (method: string): string => {
   const normalized = method.toUpperCase()
@@ -331,9 +457,23 @@ const paymentMethodLabelFromKey = (method: string): string => {
       return 'Cartão de débito'
     case 'DINHEIRO':
       return 'Dinheiro'
+    case 'PAGAMENTO_ENTREGA':
+      return 'Pagar na entrega'
+    case 'SEMANAL_LOJA':
+      return 'Semanal na loja'
     default:
       return method
   }
+}
+
+const requiresPaymentOverride = (method: PaymentMethod) =>
+  method === 'Pagar na entrega' || method === 'Semanal na loja'
+
+const toApiPaymentMethod = (method: PaymentMethod): 'PIX' | 'Cartão de crédito' | 'Cartão de débito' | 'Dinheiro' => {
+  if (method === 'Pagar na entrega' || method === 'Semanal na loja') {
+    return 'Dinheiro'
+  }
+  return method
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -354,6 +494,16 @@ const initialAssistances: Assistance[] = []
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+
+const formatPaymentLabel = (payment: SalePayment) => {
+  if (payment.method === 'Semanal na loja' && payment.weeklyPlan) {
+    return `${payment.method} · ${payment.weeklyPlan.weeks}x ${formatCurrency(payment.weeklyPlan.weeklyAmount)}`
+  }
+  if (payment.method === 'Cartão de crédito' && payment.installments > 1) {
+    return `${payment.method} · ${payment.installments}x`
+  }
+  return payment.method
+}
 
 const generateSaleId = () => 'VEN-0000'
 
@@ -424,6 +574,8 @@ const createSaleFormFromSale = (sale: Sale, stockItems: StockItem[]): SaleFormSt
         ? sale.payments.map((payment) => ({
             ...payment,
             id: payment.id ?? `pay-${payment.method}-${Date.now()}`,
+            weeklyWeeks: payment.weeklyPlan?.weeks,
+            weeklyAmount: payment.weeklyPlan?.weeklyAmount,
           }))
         : [
             {
@@ -448,9 +600,10 @@ const createAssistanceFormState = (salesList: Sale[]): {
   photos: string[]
 } => {
   const firstSale = salesList[0]
+  const firstItemKey = firstSale?.items[0] ? getSaleItemKey(firstSale.items[0], 0) : ''
   return {
     saleId: firstSale ? firstSale.backendId ?? firstSale.id : '',
-    productId: firstSale?.items[0]?.productId ?? '',
+    productId: firstItemKey,
     defectDescription: '',
     factoryResponse: '',
     expectedDate: new Date().toISOString().slice(0, 10),
@@ -483,6 +636,7 @@ function App() {
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null)
   const [receiptModalOpen, setReceiptModalOpen] = useState(false)
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null)
+  const [weeklyPlanModal, setWeeklyPlanModal] = useState<{ saleId: string; paymentId: string } | null>(null)
   const [confirmDeliveryState, setConfirmDeliveryState] = useState<{
     sale: Sale
     redirect?: PageId
@@ -543,6 +697,9 @@ const [financePaymentFilter, setFinancePaymentFilter] = useState<'all' | Payment
 const [financeMinValue, setFinanceMinValue] = useState('')
 const [financeMaxValue, setFinanceMaxValue] = useState('')
 const [financeClientFilter, setFinanceClientFilter] = useState('all')
+const [financeCodeStart, setFinanceCodeStart] = useState('')
+const [financeCodeEnd, setFinanceCodeEnd] = useState('')
+const [paymentOverrides, setPaymentOverrides] = useState<Record<string, PaymentOverride[]>>(() => loadPaymentOverrides())
   const [monthlyGoal, setMonthlyGoal] = useState<MonthlyGoal | null>(null)
   const [monthlyGoalLoading, setMonthlyGoalLoading] = useState(false)
   const [monthlyGoalError, setMonthlyGoalError] = useState<string | null>(null)
@@ -632,6 +789,10 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     if (authToken) headers.Authorization = `Bearer ${authToken}`
     return headers
   }
+
+  useEffect(() => {
+    savePaymentOverrides(paymentOverrides)
+  }, [paymentOverrides])
 
   useEffect(() => {
     let isMounted = true
@@ -882,9 +1043,11 @@ useEffect(() => {
     setFinanceSummaryError(null)
     try {
       const params = new URLSearchParams()
-      if (financeDateStart) params.append('start', financeDateStart)
-      if (financeDateEnd) params.append('end', financeDateEnd)
-       if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
+      const startIso = getLocalStartOfDayIso(financeDateStart)
+      const endIso = getLocalEndOfDayIso(financeDateEnd)
+      if (startIso) params.append('start', startIso)
+      if (endIso) params.append('end', endIso)
+      if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
       const query = params.toString()
       const response = await fetch(`${API_BASE_URL}/finance/summary${query ? `?${query}` : ''}`, {
         headers: getAuthHeaders(false),
@@ -923,8 +1086,10 @@ useEffect(() => {
     setFinanceExpensesError(null)
     try {
       const params = new URLSearchParams()
-      if (financeDateStart) params.append('start', financeDateStart)
-      if (financeDateEnd) params.append('end', financeDateEnd)
+      const startIso = getLocalStartOfDayIso(financeDateStart)
+      const endIso = getLocalEndOfDayIso(financeDateEnd)
+      if (startIso) params.append('start', startIso)
+      if (endIso) params.append('end', endIso)
       if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
       const query = params.toString()
       const response = await fetch(`${API_BASE_URL}/finance/expenses${query ? `?${query}` : ''}`, {
@@ -1086,8 +1251,10 @@ useEffect(() => {
       const fallbackSale = sales[0]
       const nextSale = saleExists ? sales.find(findByBackend) ?? fallbackSale : fallbackSale
       const nextSaleId = nextSale ? nextSale.backendId ?? nextSale.id : ''
-      const productExists = nextSale?.items.some((item) => item.productId === prev.productId)
-      const nextProductId = productExists ? prev.productId : nextSale?.items[0]?.productId ?? ''
+      const productExists = nextSale?.items.some(
+        (item, index) => getSaleItemKey(item, index) === prev.productId,
+      )
+      const nextProductId = productExists ? prev.productId : nextSale?.items[0] ? getSaleItemKey(nextSale.items[0], 0) : ''
       return {
         ...prev,
         saleId: nextSaleId,
@@ -1577,12 +1744,23 @@ const focusInventoryPanel = (productId?: string) => {
       ...prev,
       payments: prev.payments.map((payment, idx) => {
         if (idx !== index) return payment
-        const next = { ...payment, ...updates }
-        if (next.amount < 0) next.amount = 0
-        if (next.method !== 'Cartão de crédito') {
+        const next: SalePayment = { ...payment, ...updates }
+        if (next.method === 'Semanal na loja') {
+          const weeks = Math.max(1, Number(next.weeklyWeeks ?? 1))
+          const weeklyAmount = Math.max(0, Number(next.weeklyAmount ?? 0))
+          next.weeklyWeeks = weeks
+          next.weeklyAmount = weeklyAmount
+          next.amount = computeWeeklyTotal(weeks, weeklyAmount)
           next.installments = 1
-        } else if (next.installments < 1) {
-          next.installments = 1
+        } else {
+          if (next.weeklyWeeks !== undefined) delete next.weeklyWeeks
+          if (next.weeklyAmount !== undefined) delete next.weeklyAmount
+          if (next.method !== 'Cartão de crédito') {
+            next.installments = 1
+          } else if (next.installments < 1) {
+            next.installments = 1
+          }
+          if (next.amount < 0) next.amount = 0
         }
         return next
       }),
@@ -1596,6 +1774,22 @@ const focusInventoryPanel = (productId?: string) => {
       return { ...prev, payments: filtered }
     })
   }
+
+  const updatePaymentOverridesForSale = useCallback(
+    (saleId: string, overrides: PaymentOverride[] | null) => {
+      setPaymentOverrides((prev) => {
+        const next = { ...prev }
+        if (!overrides || overrides.length === 0) {
+          delete next[saleId]
+        } else {
+          next[saleId] = overrides
+        }
+        savePaymentOverrides(next)
+        return next
+      })
+    },
+    [],
+  )
 
   const handleDeleteProduct = async (productId: string) => {
     if (!canManageStock || !authToken) return
@@ -1801,6 +1995,22 @@ const focusInventoryPanel = (productId?: string) => {
       return
     }
 
+    const existingOverrides = editingSale ? paymentOverrides[editingSale.id] ?? [] : []
+    const existingWeeklyPlan = existingOverrides.find((override) => override.method === 'Semanal na loja')?.weeklyPlan
+    const weeklyPayments = saleForm.payments.filter((payment) => payment.method === 'Semanal na loja')
+    for (const weeklyPayment of weeklyPayments) {
+      const weeks = Number(weeklyPayment.weeklyWeeks ?? 0)
+      const weeklyAmount = Number(weeklyPayment.weeklyAmount ?? 0)
+      if (!weeks || weeks < 1) {
+        setSaleModalError('Informe o número de semanas do pagamento semanal.')
+        return
+      }
+      if (!weeklyAmount || weeklyAmount <= 0) {
+        setSaleModalError('Informe o valor semanal do pagamento na loja.')
+        return
+      }
+    }
+
     const quantityCheck: Record<string, number> = {}
     type SaleItemPayload =
       | {
@@ -1874,6 +2084,21 @@ const focusInventoryPanel = (productId?: string) => {
       }
     }
 
+    const paymentOverridesDraft = saleForm.payments
+      .map((payment, index) => {
+        if (!requiresPaymentOverride(payment.method)) return null
+        const weeklyPlan =
+          payment.method === 'Semanal na loja'
+            ? buildWeeklyPlan(payment.weeklyWeeks ?? 1, payment.weeklyAmount ?? 0, existingWeeklyPlan)
+            : undefined
+        return {
+          index,
+          method: payment.method,
+          weeklyPlan,
+        }
+      })
+      .filter(Boolean) as { index: number; method: PaymentMethod; weeklyPlan?: WeeklyPlan }[]
+
     const payload = {
       clientId: saleForm.clientId,
       items: saleItems.map((item) => ({
@@ -1884,7 +2109,7 @@ const focusInventoryPanel = (productId?: string) => {
         discount: item.discount,
       })),
       payments: saleForm.payments.map((payment) => ({
-        method: payment.method,
+        method: toApiPaymentMethod(payment.method),
         amount: payment.amount,
         installments: payment.installments,
       })),
@@ -1906,7 +2131,20 @@ const focusInventoryPanel = (productId?: string) => {
       if (!response.ok) {
         throw new Error(editingSale ? 'Não foi possível atualizar a venda.' : 'Não foi possível registrar a venda.')
       }
-      const createdSale = normalizeSale(await response.json())
+      const apiSale = await response.json()
+      const createdSale = normalizeSale(apiSale)
+      const overrides = paymentOverridesDraft
+        .map((draft) => {
+          const paymentId = apiSale?.payments?.[draft.index]?.id
+          if (!paymentId) return null
+          return {
+            paymentId,
+            method: draft.method,
+            weeklyPlan: draft.weeklyPlan,
+          }
+        })
+        .filter(Boolean) as PaymentOverride[]
+      updatePaymentOverridesForSale(createdSale.id, overrides.length ? overrides : null)
       if (editingSale) {
         setSales((prev) => prev.map((item) => (item.id === editingSale.id ? createdSale : item)))
         setEditingSale(null)
@@ -2024,6 +2262,35 @@ const focusInventoryPanel = (productId?: string) => {
       window.alert(error instanceof Error ? error.message : 'Erro ao aprovar pedido.')
     }
   }
+
+  const updateWeeklyPayment = useCallback(
+    (saleId: string, paymentId: string, week: number, paidAmount: number) => {
+      const overrides = paymentOverrides[saleId] ?? []
+      const nextOverrides = overrides.map((override) => {
+        if (override.paymentId !== paymentId || !override.weeklyPlan) return override
+        const plan = buildWeeklyPlan(override.weeklyPlan.weeks, override.weeklyPlan.weeklyAmount, override.weeklyPlan)
+        const payments = plan.payments.map((item) =>
+          item.week === week
+            ? {
+                ...item,
+                paidAmount,
+                paidAt: paidAmount > 0 ? new Date().toISOString() : undefined,
+              }
+            : item,
+        )
+        return {
+          ...override,
+          weeklyPlan: {
+            ...plan,
+            payments,
+          },
+        }
+      })
+      updatePaymentOverridesForSale(saleId, nextOverrides)
+      setSales((prev) => prev.map((sale) => (sale.id === saleId ? applyPaymentOverrides(sale) : sale)))
+    },
+    [paymentOverrides, updatePaymentOverridesForSale],
+  )
 
   const handleCreateExpense = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2233,14 +2500,19 @@ const focusInventoryPanel = (productId?: string) => {
       return
     }
     const selectedSale = sales.find((sale) => (sale.backendId ?? sale.id) === assistanceForm.saleId)
-    const productExists = stockItems.some((item) => item.id === assistanceForm.productId)
-    if (!selectedSale || !productExists) return
+    const selectedItem = selectedSale?.items.find(
+      (item, index) => getSaleItemKey(item, index) === assistanceForm.productId,
+    )
+    if (!selectedSale || !selectedItem) {
+      setAssistanceSubmitError('Selecione uma venda com itens para continuar.')
+      return
+    }
     setAssistanceSubmitLoading(true)
     setAssistanceSubmitError(null)
     try {
       const payload = {
         saleId: selectedSale.backendId ?? selectedSale.id,
-        productId: assistanceForm.productId,
+        ...(selectedItem.productId ? { productId: selectedItem.productId } : {}),
         defectDescription: assistanceForm.defectDescription.trim(),
         factoryResponse: assistanceForm.factoryResponse.trim() || undefined,
         expectedDate: assistanceForm.expectedDate ? new Date(assistanceForm.expectedDate).toISOString() : undefined,
@@ -2580,13 +2852,18 @@ const focusInventoryPanel = (productId?: string) => {
                 {nextDeliveries.length === 0 && <li>Sem entregas pendentes.</li>}
                 {nextDeliveries.map((delivery) => {
                   const client = clients.find((clientItem) => clientItem.id === delivery.clientId)
+                  const itemNames = delivery.items
+                    .map((item) => stockItems.find((stock) => stock.id === item.productId)?.name)
+                    .filter((name): name is string => Boolean(name))
                   return (
                     <li key={delivery.id}>
-                      <div>
+                      <div className="delivery-head">
                         <strong>{client?.name ?? 'Cliente'}</strong>
-                        <span>{new Date(delivery.deliveryDate).toLocaleDateString('pt-BR')}</span>
+                        <span className="delivery-date">
+                          {new Date(delivery.deliveryDate).toLocaleDateString('pt-BR')}
+                        </span>
                       </div>
-                      <p>{delivery.items.map((item) => stockItems.find((stock) => stock.id === item.productId)?.name).join(', ')}</p>
+                      <p>{itemNames.length ? itemNames.join(' • ') : 'Itens pendentes de vínculo'}</p>
                     </li>
                   )
                 })}
@@ -3081,11 +3358,7 @@ const focusInventoryPanel = (productId?: string) => {
             <span className="field-label">Pagamentos</span>
             {sale.payments.map((payment) => (
               <p key={payment.id}>
-                {payment.method}
-                {payment.method === 'Cartão de crédito' && payment.installments > 1
-                  ? ` · ${payment.installments}x`
-                  : ''}{' '}
-                — {formatCurrency(payment.amount)}
+                {formatPaymentLabel(payment)} — {formatCurrency(payment.amount)}
               </p>
             ))}
             <p className="field-note">Recebido: {formatCurrency(paymentsTotal)}</p>
@@ -3281,6 +3554,13 @@ const focusInventoryPanel = (productId?: string) => {
                       ? 'danger'
                       : 'warning'
                 const canManageThisSale = isAdmin && sale.status !== 'cancelada'
+                const weeklyPayment = sale.payments.find((payment) => payment.method === 'Semanal na loja' && payment.weeklyPlan)
+                const weeklyPlan = weeklyPayment?.weeklyPlan
+                const weeklyPaid = weeklyPlan
+                  ? weeklyPlan.payments.reduce((sum, payment) => sum + (payment.paidAmount ?? 0), 0)
+                  : 0
+                const weeklyTotal = weeklyPlan ? weeklyPlan.weeks * weeklyPlan.weeklyAmount : 0
+                const weeklyRemaining = Math.max(0, weeklyTotal - weeklyPaid)
                 return (
                   <div className={`sale-card ${sale.status}`} key={sale.id}>
                     <div>
@@ -3313,14 +3593,23 @@ const focusInventoryPanel = (productId?: string) => {
                       <div className="sale-payments-list">
                         {sale.payments.map((payment) => (
                           <span key={payment.id}>
-                            {payment.method}
-                            {payment.method === 'Cartão de crédito' && payment.installments > 1
-                              ? ` · ${payment.installments}x`
-                              : ''}{' '}
-                            — {formatCurrency(payment.amount)}
+                            {formatPaymentLabel(payment)} — {formatCurrency(payment.amount)}
                           </span>
                         ))}
                       </div>
+                      {weeklyPlan && (
+                        <div className="sale-note">
+                          <strong>Semanal na loja:</strong> {weeklyPlan.weeks}x de {formatCurrency(weeklyPlan.weeklyAmount)} · Recebido{' '}
+                          {formatCurrency(weeklyPaid)} · Faltam {formatCurrency(weeklyRemaining)}
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setWeeklyPlanModal({ saleId: sale.id, paymentId: weeklyPayment!.id })}
+                          >
+                            Controlar semanas
+                          </button>
+                        </div>
+                      )}
                       {sale.discount > 0 && (
                         <span className="chip ghost">Desconto aplicado · {formatCurrency(sale.discount)}</span>
                       )}
@@ -4123,11 +4412,19 @@ const focusInventoryPanel = (productId?: string) => {
   const renderFinance = () => {
     const financeMin = financeMinValue ? Number(financeMinValue) : null
     const financeMax = financeMaxValue ? Number(financeMaxValue) : null
+    const codeStart = parseSaleCode(financeCodeStart)
+    const codeEnd = parseSaleCode(financeCodeEnd)
+    const startBoundary = financeDateStart ? new Date(getLocalStartOfDayIso(financeDateStart)).getTime() : null
+    const endBoundary = financeDateEnd ? new Date(getLocalEndOfDayIso(financeDateEnd)).getTime() : null
     const financeSales = sales.filter((sale) => {
       if (sale.status === 'cancelada') return false
-      const saleDate = sale.createdAt.slice(0, 10)
-      if (financeDateStart && saleDate < financeDateStart) return false
-      if (financeDateEnd && saleDate > financeDateEnd) return false
+      const saleTimestamp = new Date(sale.createdAt).getTime()
+      if (startBoundary && saleTimestamp < startBoundary) return false
+      if (endBoundary && saleTimestamp > endBoundary) return false
+      if ((codeStart !== null || codeEnd !== null) && !isPublicSaleCode(sale.id)) return false
+      const saleCode = parseSaleCode(sale.id)
+      if (codeStart !== null && (saleCode === null || saleCode < codeStart)) return false
+      if (codeEnd !== null && (saleCode === null || saleCode > codeEnd)) return false
       if (financeClientFilter !== 'all' && sale.clientId !== financeClientFilter) return false
       if (financeMin !== null && sale.value < financeMin) return false
       if (financeMax !== null && sale.value > financeMax) return false
@@ -4137,7 +4434,30 @@ const focusInventoryPanel = (productId?: string) => {
       financePaymentFilter === 'all'
         ? financeSales
         : financeSales.filter((sale) => sale.payments.some((payment) => payment.method === financePaymentFilter))
-    const computedRevenue = paymentFilteredSales.reduce((sum, sale) => sum + sale.value, 0)
+    const hasCustomPaymentMethods = paymentFilteredSales.some((sale) =>
+      sale.payments.some((payment) => requiresPaymentOverride(payment.method)),
+    )
+    const hasActiveFinanceFilters = Boolean(
+      financeDateStart ||
+        financeDateEnd ||
+        financeClientFilter !== 'all' ||
+        financeMinValue ||
+        financeMaxValue ||
+        financePaymentFilter !== 'all' ||
+        financeCodeStart ||
+        financeCodeEnd ||
+        hasCustomPaymentMethods,
+    )
+    const useComputedSummary = hasActiveFinanceFilters
+    const computedRevenue = paymentFilteredSales.reduce((sum, sale) => {
+      const methodTotal =
+        financePaymentFilter === 'all'
+          ? sale.payments.reduce((sub, payment) => sub + payment.amount, 0)
+          : sale.payments
+              .filter((payment) => payment.method === financePaymentFilter)
+              .reduce((sub, payment) => sub + payment.amount, 0)
+      return sum + methodTotal
+    }, 0)
     const computedDiscount = paymentFilteredSales.reduce((sum, sale) => sum + sale.discount, 0)
     const totalOrders = paymentFilteredSales.length
     const averageTicket = totalOrders ? computedRevenue / totalOrders : 0
@@ -4147,7 +4467,7 @@ const focusInventoryPanel = (productId?: string) => {
       })
       return acc
     }, {})
-    const summaryPaymentBreakdown = financeSummary
+    const summaryPaymentBreakdown = !useComputedSummary && financeSummary
       ? Object.entries(financeSummary.paymentsByMethod).reduce<Record<string, number>>((acc, [method, value]) => {
           const label = paymentMethodLabelFromKey(method)
           acc[label] = (acc[label] ?? 0) + value
@@ -4157,26 +4477,59 @@ const focusInventoryPanel = (productId?: string) => {
     const extraPaymentEntries = Object.entries(summaryPaymentBreakdown).filter(
       ([label]) => !paymentMethods.includes(label as PaymentMethod),
     )
-    const summaryRevenue = financeSummary?.totalRevenue ?? computedRevenue
-    const summaryDiscount = financeSummary?.discountTotal ?? computedDiscount
-    const summaryDelivered =
-      financeSummary?.delivered ?? paymentFilteredSales.filter((sale) => sale.status === 'entregue').length
-    const summaryPending =
-      financeSummary?.pending ?? paymentFilteredSales.filter((sale) => sale.status === 'pendente').length
+    const summaryRevenue = !useComputedSummary && financeSummary ? financeSummary.totalRevenue : computedRevenue
+    const summaryDiscount = !useComputedSummary && financeSummary ? financeSummary.discountTotal : computedDiscount
+    const summaryDelivered = !useComputedSummary && financeSummary
+      ? financeSummary.delivered
+      : paymentFilteredSales.filter((sale) => sale.status === 'entregue').length
+    const summaryPending = !useComputedSummary && financeSummary
+      ? financeSummary.pending
+      : paymentFilteredSales.filter((sale) => sale.status === 'pendente').length
     const computedExpenseTotals = financeExpenses.reduce<Record<string, number>>((acc, expense) => {
       acc[expense.method] = (acc[expense.method] ?? 0) + expense.amount
       return acc
     }, {})
     const summaryExpensesAmount =
-      financeSummary?.expensesTotal ?? financeExpenses.reduce((sum, expense) => sum + expense.amount, 0)
-    const summaryExpenseBreakdown = financeSummary
+      !useComputedSummary && financeSummary
+        ? financeSummary.expensesTotal
+        : financeExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+    const summaryExpenseBreakdown = !useComputedSummary && financeSummary
       ? Object.entries(financeSummary.expensesByMethod).reduce<Record<string, number>>((acc, [method, value]) => {
           const label = paymentMethodLabelFromKey(method)
           acc[label] = (acc[label] ?? 0) + value
           return acc
         }, {})
       : computedExpenseTotals
-    const summaryNetRevenue = financeSummary?.netRevenue ?? summaryRevenue - summaryExpensesAmount
+    const summaryNetRevenue = !useComputedSummary && financeSummary
+      ? financeSummary.netRevenue
+      : summaryRevenue - summaryExpensesAmount
+    const weeklySales = paymentFilteredSales
+      .map((sale) => {
+        const weeklyPayment = sale.payments.find(
+          (payment) => payment.method === 'Semanal na loja' && payment.weeklyPlan,
+        )
+        if (!weeklyPayment?.weeklyPlan) return null
+        const totalExpected = weeklyPayment.weeklyPlan.weeks * weeklyPayment.weeklyPlan.weeklyAmount
+        const totalPaid = weeklyPayment.weeklyPlan.payments.reduce((sum, item) => sum + (item.paidAmount ?? 0), 0)
+        const pending = Math.max(0, totalExpected - totalPaid)
+        return {
+          sale,
+          weeklyPayment,
+          totalExpected,
+          totalPaid,
+          pending,
+        }
+      })
+      .filter(Boolean) as {
+        sale: Sale
+        weeklyPayment: SalePayment
+        totalExpected: number
+        totalPaid: number
+        pending: number
+      }[]
+    const weeklyTotalPaid = weeklySales.reduce((sum, item) => sum + item.totalPaid, 0)
+    const weeklyTotalExpected = weeklySales.reduce((sum, item) => sum + item.totalExpected, 0)
+    const weeklyTotalPending = Math.max(0, weeklyTotalExpected - weeklyTotalPaid)
     const salesByClient = paymentFilteredSales.reduce<Record<string, number>>((acc, sale) => {
       acc[sale.clientId] = (acc[sale.clientId] ?? 0) + sale.value
       return acc
@@ -4271,6 +4624,11 @@ const focusInventoryPanel = (productId?: string) => {
               <span>Entradas - saídas considerando o filtro atual.</span>
             </div>
             <div className="metric-card">
+              <p>Pagamentos semanais</p>
+              <h3>{formatCurrency(weeklyTotalPaid)}</h3>
+              <span>Previsto: {formatCurrency(weeklyTotalExpected)} · Faltam {formatCurrency(weeklyTotalPending)}</span>
+            </div>
+            <div className="metric-card">
               <p>Top clientes</p>
               {topClients.length ? (
                 <ul className="metric-list">
@@ -4307,6 +4665,22 @@ const focusInventoryPanel = (productId?: string) => {
             <label>
               Até
               <input type="date" value={financeDateEnd} onChange={(event) => setFinanceDateEnd(event.target.value)} />
+            </label>
+            <label>
+              Código inicial
+              <input
+                value={financeCodeStart}
+                onChange={(event) => setFinanceCodeStart(event.target.value)}
+                placeholder="0001"
+              />
+            </label>
+            <label>
+              Código final
+              <input
+                value={financeCodeEnd}
+                onChange={(event) => setFinanceCodeEnd(event.target.value)}
+                placeholder="0020"
+              />
             </label>
             <label>
               Cliente
@@ -4347,6 +4721,54 @@ const focusInventoryPanel = (productId?: string) => {
                 onChange={(event) => setFinanceMaxValue(event.target.value)}
               />
             </label>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Pagamentos semanais</p>
+              <h2>Controle de parcelas em aberto</h2>
+            </div>
+            <span className="chip ghost">{weeklySales.length} planos</span>
+          </div>
+          <div className="finance-table">
+            {weeklySales.length === 0 && (
+              <p className="empty-state">Nenhuma venda com pagamento semanal no filtro atual.</p>
+            )}
+            {weeklySales.map((item) => {
+              const client = clients.find((clientItem) => clientItem.id === item.sale.clientId)
+              return (
+                <div className="finance-row" key={item.sale.id}>
+                  <div>
+                    <p className="sale-id">#{item.sale.id}</p>
+                    <p className="hero-sub">{client?.name ?? item.sale.clientName ?? 'Cliente removido'}</p>
+                  </div>
+                  <div>
+                    <span>Plano</span>
+                    <strong>{item.weeklyPayment.weeklyPlan?.weeks}x de {formatCurrency(item.weeklyPayment.weeklyPlan?.weeklyAmount ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Recebido</span>
+                    <strong>{formatCurrency(item.totalPaid)}</strong>
+                  </div>
+                  <div>
+                    <span>Faltam</span>
+                    <strong>{formatCurrency(item.pending)}</strong>
+                  </div>
+                  <div className="finance-payments">
+                    <span>Ações</span>
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={() => setWeeklyPlanModal({ saleId: item.sale.id, paymentId: item.weeklyPayment.id })}
+                    >
+                      Controlar semanas
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </section>
 
@@ -4457,7 +4879,7 @@ const focusInventoryPanel = (productId?: string) => {
           <div className="finance-table">
             {paymentFilteredSales.map((sale) => {
               const client = clients.find((clientItem) => clientItem.id === sale.clientId)
-              const paymentSummary = sale.payments.map((payment) => `${payment.method} · ${formatCurrency(payment.amount)}`).join(' | ')
+              const paymentSummary = sale.payments.map((payment) => `${formatPaymentLabel(payment)} · ${formatCurrency(payment.amount)}`).join(' | ')
               return (
                 <div className="finance-row" key={sale.id}>
                   <div>
@@ -4493,14 +4915,17 @@ const focusInventoryPanel = (productId?: string) => {
   const renderAssistances = () => {
     const selectedSale = sales.find((sale) => (sale.backendId ?? sale.id) === assistanceForm.saleId)
     const productOptions = selectedSale
-      ? selectedSale.items.reduce<StockItem[]>((acc, saleItem) => {
-          const product = stockItems.find((item) => item.id === saleItem.productId)
-          if (product && !acc.some((existing) => existing.id === product.id)) {
-            acc.push(product)
+      ? selectedSale.items.reduce<{ value: string; label: string }[]>((acc, item, index) => {
+          const value = getSaleItemKey(item, index)
+          if (!acc.some((existing) => existing.value === value)) {
+            acc.push({ value, label: getSaleItemLabel(item) })
           }
           return acc
         }, [])
       : []
+    const selectedAssistanceItem = selectedSale?.items.find(
+      (item, index) => getSaleItemKey(item, index) === assistanceForm.productId,
+    )
     const normalizedAssistSearch = assistanceSearch.trim().toLowerCase()
     const filteredAssistances = assistances.filter((assistance) => {
       if (assistanceStatusFilter !== 'all' && assistance.status !== assistanceStatusFilter) {
@@ -4513,7 +4938,8 @@ const focusInventoryPanel = (productId?: string) => {
         const sale = sales.find((item) => (item.backendId ?? item.id) === assistance.saleId)
         const client = sale ? clients.find((clientItem) => clientItem.id === sale.clientId) : null
         const product = stockItems.find((item) => item.id === assistance.productId)
-        const blob = `${assistance.code ?? assistance.id} ${assistance.saleCode} ${client?.name ?? ''} ${product?.name ?? ''} ${assistance.defectDescription} ${assistance.factoryResponse}`.toLowerCase()
+        const productLabel = product?.name ?? assistance.productName ?? ''
+        const blob = `${assistance.code ?? assistance.id} ${assistance.saleCode} ${client?.name ?? ''} ${productLabel} ${assistance.defectDescription} ${assistance.factoryResponse}`.toLowerCase()
         if (!blob.includes(normalizedAssistSearch)) return false
       }
       return true
@@ -4524,7 +4950,7 @@ const focusInventoryPanel = (productId?: string) => {
     const canSubmitAssistance =
       canManageAssistances &&
       Boolean(selectedSale) &&
-      Boolean(assistanceForm.productId && assistanceForm.defectDescription.trim())
+      Boolean(selectedAssistanceItem && assistanceForm.defectDescription.trim())
 
     return (
       <div className="assistances page-stack">
@@ -4598,10 +5024,11 @@ const focusInventoryPanel = (productId?: string) => {
                   onChange={(event) => {
                     const nextSaleId = event.target.value
                     const sale = sales.find((item) => (item.backendId ?? item.id) === nextSaleId)
+                    const nextProductId = sale?.items[0] ? getSaleItemKey(sale.items[0], 0) : ''
                     setAssistanceForm((prev) => ({
                       ...prev,
                       saleId: nextSaleId,
-                      productId: sale?.items[0]?.productId ?? '',
+                      productId: nextProductId,
                     }))
                   }}
                   disabled={!sales.length || !canManageAssistances}
@@ -4625,8 +5052,8 @@ const focusInventoryPanel = (productId?: string) => {
                   disabled={!productOptions.length || !canManageAssistances}
                 >
                   {productOptions.map((product) => (
-                    <option value={product.id} key={product.id}>
-                      {product.name}
+                    <option value={product.value} key={product.value}>
+                      {product.label}
                     </option>
                   ))}
                   {!productOptions.length && <option value="">Selecione uma venda com itens</option>}
@@ -4763,12 +5190,13 @@ const focusInventoryPanel = (productId?: string) => {
               const sale = sales.find((saleItem) => (saleItem.backendId ?? saleItem.id) === assistance.saleId)
               const client = sale ? clients.find((clientItem) => clientItem.id === sale.clientId) : null
               const product = stockItems.find((item) => item.id === assistance.productId)
+              const productLabel = product?.name ?? assistance.productName ?? 'Item personalizado'
               return (
                 <article className={`assistance-card ${assistance.status}`} key={assistance.id}>
                   <header>
                     <div>
                       <p className="eyebrow">Assistência #{assistance.code ?? assistance.id}</p>
-                      <h3>{product?.name ?? 'Produto removido'}</h3>
+                      <h3>{productLabel}</h3>
                       <p className="hero-sub">{client?.name ?? sale?.clientName ?? 'Cliente removido'}</p>
                     </div>
                     <span className={`status-pill ${assistance.status}`}>
@@ -5423,13 +5851,48 @@ const focusInventoryPanel = (productId?: string) => {
                         allowNegative={false}
                         inputMode="decimal"
                         placeholder="0,00"
-                        onValueChange={({ floatValue }) =>
+                        readOnly={payment.method === 'Semanal na loja'}
+                        onValueChange={({ floatValue }) => {
+                          if (payment.method === 'Semanal na loja') return
                           updatePaymentRow(index, {
                             amount: floatValue ?? 0,
                           })
-                        }
+                        }}
                       />
                     </label>
+                    {payment.method === 'Semanal na loja' && (
+                      <>
+                        <label>
+                          Semanas
+                          <input
+                            type="number"
+                            min={1}
+                            value={payment.weeklyWeeks ?? 1}
+                            onChange={(event) =>
+                              updatePaymentRow(index, { weeklyWeeks: Number(event.target.value) })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Valor semanal (R$)
+                          <NumericFormat
+                            value={payment.weeklyAmount === 0 ? '' : payment.weeklyAmount}
+                            thousandSeparator="."
+                            decimalSeparator=","
+                            decimalScale={2}
+                            fixedDecimalScale
+                            allowNegative={false}
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            onValueChange={({ floatValue }) =>
+                              updatePaymentRow(index, {
+                                weeklyAmount: floatValue ?? 0,
+                              })
+                            }
+                          />
+                        </label>
+                      </>
+                    )}
                     {payment.method === 'Cartão de crédito' && (
                       <label>
                         Parcelas
@@ -5720,11 +6183,92 @@ const focusInventoryPanel = (productId?: string) => {
         </div>
       )}
 
+      {weeklyPlanModal &&
+        (() => {
+          const sale = sales.find((item) => item.id === weeklyPlanModal.saleId)
+          const client = sale ? clients.find((clientItem) => clientItem.id === sale.clientId) : null
+          const payment = sale?.payments.find((item) => item.id === weeklyPlanModal.paymentId)
+          const weeklyPlan = payment?.weeklyPlan
+          if (!sale || !payment || !weeklyPlan) return null
+          const totalPaid = weeklyPlan.payments.reduce((sum, item) => sum + (item.paidAmount ?? 0), 0)
+          const totalExpected = weeklyPlan.weeks * weeklyPlan.weeklyAmount
+          const totalPending = Math.max(0, totalExpected - totalPaid)
+          return (
+            <div className="modal-backdrop weekly-modal-backdrop" onClick={() => setWeeklyPlanModal(null)}>
+              <div className="modal weekly-modal" onClick={(event) => event.stopPropagation()}>
+                <div className="section-head weekly-modal-head">
+                  <div>
+                    <p className="eyebrow">Pagamento semanal</p>
+                    <h2>Venda #{sale.id}</h2>
+                    <p className="hero-sub">{client?.name ?? sale.clientName ?? 'Cliente removido'}</p>
+                  </div>
+                  <button className="text-button" onClick={() => setWeeklyPlanModal(null)}>
+                    Fechar
+                  </button>
+                </div>
+                <div className="assist-modal-summary weekly-summary">
+                  <div>
+                    <span>Plano</span>
+                    <strong>{weeklyPlan.weeks}x de {formatCurrency(weeklyPlan.weeklyAmount)}</strong>
+                    <small>Total previsto: {formatCurrency(totalExpected)}</small>
+                  </div>
+                  <div>
+                    <span>Recebido</span>
+                    <strong>{formatCurrency(totalPaid)}</strong>
+                    <small>Faltam {formatCurrency(totalPending)}</small>
+                  </div>
+                </div>
+                <div className="sales-list weekly-list">
+                  {weeklyPlan.payments.map((item) => (
+                    <div className="finance-row weekly-row" key={item.week}>
+                      <div>
+                        <p className="sale-id">Semana {item.week}</p>
+                        <p className="hero-sub">Previsto: {formatCurrency(weeklyPlan.weeklyAmount)}</p>
+                      </div>
+                      <div>
+                        <span>Pago</span>
+                        <input
+                          className="weekly-input"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={item.paidAmount}
+                          onChange={(event) =>
+                            updateWeeklyPayment(
+                              sale.id,
+                              payment.id,
+                              item.week,
+                              Number(event.target.value || 0),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="finance-payments weekly-actions">
+                        <span>Ações</span>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() =>
+                            updateWeeklyPayment(sale.id, payment.id, item.week, weeklyPlan.weeklyAmount)
+                          }
+                        >
+                          Marcar pago
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )
+        })()}
+
       {assistanceModal &&
         (() => {
           const modalSale = sales.find((sale) => (sale.backendId ?? sale.id) === assistanceModal.saleId)
           const modalClient = modalSale ? clients.find((client) => client.id === modalSale.clientId) : null
           const modalProduct = stockItems.find((item) => item.id === assistanceModal.productId)
+          const modalProductLabel = modalProduct?.name ?? assistanceModal.productName ?? 'Item personalizado'
           const expectedLabel = new Date(assistanceModal.expectedDate).toLocaleDateString('pt-BR')
           const createdLabel = new Date(assistanceModal.createdAt).toLocaleDateString('pt-BR')
           return (
@@ -5733,7 +6277,7 @@ const focusInventoryPanel = (productId?: string) => {
                 <div className="section-head assistance-modal-head">
                   <div>
                     <p className="eyebrow">Assistência #{assistanceModal.code ?? assistanceModal.id}</p>
-                    <h2>{modalProduct?.name ?? 'Produto removido'}</h2>
+                    <h2>{modalProductLabel}</h2>
                     <p className="hero-sub">{modalClient?.name ?? 'Cliente removido'}</p>
                   </div>
                   <button className="text-button" onClick={() => setAssistanceModal(null)}>
