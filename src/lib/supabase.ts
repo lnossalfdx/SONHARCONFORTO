@@ -1,11 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { API_BASE_URL } from './api.ts'
 
 type SupabaseConfig = {
   url: string
   anonKey: string
 }
-
-const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
 
 let client: SupabaseClient | null = null
 let pending: Promise<SupabaseClient> | null = null
@@ -16,7 +15,7 @@ const resolveConfig = async (): Promise<SupabaseConfig> => {
   if (envUrl && envAnonKey) {
     return { url: envUrl, anonKey: envAnonKey }
   }
-  const response = await fetch(`${apiBaseUrl}/config/supabase`)
+  const response = await fetch(`${API_BASE_URL}/config/supabase`)
   if (!response.ok) {
     throw new Error('Não foi possível carregar as credenciais do Supabase.')
   }

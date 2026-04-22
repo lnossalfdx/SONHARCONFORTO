@@ -10,6 +10,7 @@ Backend em Node.js/Express utilizando o Supabase (PostgreSQL gerenciado + Auth) 
 ## Configuração
 
 1. Copie `.env.example` para `.env` e ajuste `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e `PORT`.
+   Opcionalmente, preencha `CORS_ALLOWED_ORIGINS` com origens extras separadas por vírgula.
 2. Instale as dependências:
 
 ```bash
@@ -48,6 +49,6 @@ Autenticação usa Supabase Auth (token enviado pelo frontend). O middleware `au
 pm2 start dist/index.js --name sonhar-api
 ```
 
-5. Configure Nginx (ou outro proxy) para expor `localhost:3333` em HTTPS.
+5. Configure Nginx (ou outro proxy) para expor `localhost:3333` em HTTPS, preservando o prefixo `/api` no `proxy_pass`.
 
 A partir daí, o front-end pode consumir os endpoints expostos em `/api/*`, enquanto o Supabase continua sendo a única base de dados/autenticação.

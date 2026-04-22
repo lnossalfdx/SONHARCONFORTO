@@ -5,10 +5,8 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import './App.css'
 import './mobile.css'
+import { API_BASE_URL } from './lib/api.ts'
 import { getSupabaseClient } from './lib/supabase.ts'
-
-// Base da API sempre relativa ao mesmo domínio; evita localhost no build final.
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api'
 
 type PageId = 'dashboard' | 'clientes' | 'sleepLab' | 'estoque' | 'entregas' | 'assistencias' | 'financeiro'
 

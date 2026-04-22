@@ -28,10 +28,12 @@ O repositório inclui exemplos (`.env.example` na raiz e `server/.env.example`).
 
 - Frontend `.env` / `.env.local` *(opcional, o app busca do backend caso não definido)*
   ```
-  VITE_API_URL=https://seu-dominio/api
+  VITE_API_URL=/api
   VITE_SUPABASE_URL=https://<ID>.supabase.co
   VITE_SUPABASE_ANON_KEY=chave-anon-gerada-pelo-Supabase
   ```
+
+  > Recomendado: mantenha `VITE_API_URL=/api` para usar o mesmo domínio do painel e evitar problemas de CORS. Só use URL absoluta se a API estiver em outro host e, nesse caso, defina também `VITE_ALLOW_CROSS_ORIGIN_API=true`.
 
 - Backend `server/.env`
   ```
@@ -39,6 +41,7 @@ O repositório inclui exemplos (`.env.example` na raiz e `server/.env.example`).
   SUPABASE_URL=https://<ID>.supabase.co
   SUPABASE_ANON_KEY=chave-anon-gerada-pelo-Supabase
   SUPABASE_SERVICE_ROLE_KEY=chave-service-role
+  CORS_ALLOWED_ORIGINS=https://sonharconforto.com.br,https://www.sonharconforto.com.br,https://resp.sonharconforto.com.br
   ```
 
 > **Importante:** apenas o backend usa a `SERVICE_ROLE_KEY`. Nunca exponha essa chave no frontend.
@@ -75,6 +78,8 @@ Frontend:
 npm install
 npm run dev
 ```
+
+O Vite faz proxy automático de `/api` para `http://localhost:3333`, então o mesmo `VITE_API_URL=/api` funciona no desenvolvimento e na produção.
 
 Backend:
 ```bash
@@ -118,7 +123,6 @@ cd sonhar-conforto
 # Front
 npm install
 cp .env.example .env
-echo "VITE_API_URL=https://api.seu-dominio/api" > .env
 npm run build
 
 # Backend
@@ -148,11 +152,13 @@ server {
   index index.html;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:3333/;
+    proxy_pass http://127.0.0.1:3333;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection 'upgrade';
     proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_cache_bypass $http_upgrade;
   }
 
@@ -167,6 +173,8 @@ sudo systemctl reload nginx
 ```
 
 Certifique-se de copiar a pasta `dist/` para `/var/www/sonhar-conforto/dist` (ou altere o caminho no `root`). Você pode usar `rsync` ou simples `cp`.
+
+Se o painel estiver em um subdomínio como `resp.sonharconforto.com.br`, publique o build nesse domínio e mantenha `VITE_API_URL=/api`. Assim o navegador fala com a API pelo mesmo host e o preflight CORS deixa de ser necessário.
 
 ### Pós-deploy
 

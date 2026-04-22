@@ -13,4 +13,8 @@ export const env = {
   supabaseUrl: process.env.SUPABASE_URL!,
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY!,
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 }

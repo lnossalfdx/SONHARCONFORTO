@@ -2,17 +2,19 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import { env } from './config/env.js'
 import { router } from './routes/index.js'
 
 export const createApp = () => {
   const app = express()
-  const allowedOrigins = new Set([
+  const defaultAllowedOrigins = [
     'https://sonharconforto.com.br',
     'https://www.sonharconforto.com.br',
     'https://resp.sonharconforto.com.br',
     'http://localhost:5173',
     'http://localhost:3000',
-  ])
+  ]
+  const allowedOrigins = new Set([...defaultAllowedOrigins, ...env.corsAllowedOrigins])
   const corsOptions: cors.CorsOptions = {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true)
@@ -21,7 +23,7 @@ export const createApp = () => {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'apikey'],
   }
   app.use(cors(corsOptions))
   app.options('*', cors(corsOptions))
