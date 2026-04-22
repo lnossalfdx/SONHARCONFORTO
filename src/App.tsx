@@ -2768,7 +2768,16 @@ const focusInventoryPanel = (productId?: string) => {
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error(editingSale ? 'Não foi possível atualizar a venda.' : 'Não foi possível registrar a venda.')
+        let message = editingSale ? 'Não foi possível atualizar a venda.' : 'Não foi possível registrar a venda.'
+        try {
+          const errorPayload = await response.json()
+          if (typeof errorPayload?.message === 'string' && errorPayload.message.trim()) {
+            message = errorPayload.message
+          }
+        } catch {
+          // Mantém a mensagem padrão quando a resposta não vem em JSON.
+        }
+        throw new Error(message)
       }
       const apiSale = await response.json()
       const createdSale = normalizeSale(apiSale)

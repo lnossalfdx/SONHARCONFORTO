@@ -222,23 +222,56 @@ const sumQuantitiesByProductId = (items: Array<{ productId?: string | null; quan
   return totals
 }
 
-const validateStockWithRelease = (
+const validateStockDelta = (
   items: SaleItemInput[],
   productMap: Map<string, any>,
   previousItems: Array<{ productId?: string | null; quantity: number }>,
 ) => {
   const previousTotals = sumQuantitiesByProductId(previousItems)
   const nextTotals = sumQuantitiesByProductId(items)
-  for (const [productId, nextQuantity] of nextTotals.entries()) {
+  const productIds = new Set([...previousTotals.keys(), ...nextTotals.keys()])
+  for (const productId of productIds) {
     const product = productMap.get(productId)
     if (!product) {
       throw new Error(`Produto não encontrado para ${productId}.`)
     }
-    const available = Number(product.quantity ?? 0) + (previousTotals.get(productId) ?? 0)
-    if (available < nextQuantity) {
+    const previousQuantity = previousTotals.get(productId) ?? 0
+    const nextQuantity = nextTotals.get(productId) ?? 0
+    const additionalQuantityNeeded = Math.max(0, nextQuantity - previousQuantity)
+    if (Number(product.quantity ?? 0) < additionalQuantityNeeded) {
       throw new Error(`Estoque insuficiente para ${product?.name ?? productId}.`)
     }
   }
+}
+
+const loadPendingReservedQuantities = async (productIds: string[], excludeSaleId: string) => {
+  const uniqueProductIds = [...new Set(productIds.filter(isValidId))]
+  if (!uniqueProductIds.length) return new Map<string, number>()
+
+  const { data: pendingSales, error: pendingSalesError } = await supabase
+    .from('sales')
+    .select('id')
+    .eq('status', SALE_STATUS_PENDENTE)
+    .neq('id', excludeSaleId)
+
+  if (pendingSalesError) {
+    throw new Error(pendingSalesError.message)
+  }
+
+  const pendingSaleIds = (pendingSales ?? []).map((sale) => sale.id).filter(isValidId)
+  if (!pendingSaleIds.length) return new Map<string, number>()
+
+  const { data: pendingItems, error: pendingItemsError } = await supabase
+    .from('sale_items')
+    .select('productId, quantity')
+    .in('saleId', pendingSaleIds)
+    .in('productId', uniqueProductIds)
+
+  if (pendingItemsError) {
+    throw new Error(pendingItemsError.message)
+  }
+
+  return sumQuantitiesByProductId(pendingItems ?? [])
 }
 
 const updateDeliveredProductQuantities = async (
@@ -266,6 +299,50 @@ const updateDeliveredProductQuantities = async (
       throw new Error(error.message)
     }
     product.quantity = nextProductQuantity
+  }
+}
+
+const updatePendingProductQuantities = async (
+  saleId: string,
+  previousItems: Array<{ productId?: string | null; quantity: number }>,
+  nextItems: SaleItemInput[],
+  productMap: Map<string, any>,
+) => {
+  const previousTotals = sumQuantitiesByProductId(previousItems)
+  const nextTotals = sumQuantitiesByProductId(nextItems)
+  const productIds = [...new Set([...previousTotals.keys(), ...nextTotals.keys()])]
+  const otherReservedTotals = await loadPendingReservedQuantities(productIds, saleId)
+
+  for (const productId of productIds) {
+    const product = productMap.get(productId)
+    if (!product) {
+      throw new Error(`Produto não encontrado para ${productId}.`)
+    }
+
+    const currentQuantity = Number(product.quantity ?? 0)
+    const currentReserved = Number(product.reserved ?? 0)
+    const totalStock = currentQuantity + currentReserved
+    const nextReservedQuantity = (otherReservedTotals.get(productId) ?? 0) + (nextTotals.get(productId) ?? 0)
+    const nextProductQuantity = totalStock - nextReservedQuantity
+
+    if (nextProductQuantity < 0) {
+      throw new Error(`Estoque insuficiente para ${product?.name ?? productId}.`)
+    }
+
+    const { error } = await supabase
+      .from('products')
+      .update({
+        quantity: nextProductQuantity,
+        reserved: nextReservedQuantity,
+      })
+      .eq('id', productId)
+
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    product.quantity = nextProductQuantity
+    product.reserved = nextReservedQuantity
   }
 }
 
@@ -632,7 +709,7 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
   const saleItems = Array.isArray(sale.items) ? sale.items : []
   const productIds = [
     ...new Set(
-      (isDelivered ? [...payload.items, ...saleItems] : payload.items).map((item) => item.productId).filter(isValidId),
+      [...payload.items, ...saleItems].map((item) => item.productId).filter(isValidId),
     ),
   ]
   let productsMap: Map<string, any>
@@ -642,7 +719,7 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
     return response.status(500).json({ message: (error as Error).message })
   }
   try {
-    validateStockWithRelease(payload.items, productsMap, saleItems)
+    validateStockDelta(payload.items, productsMap, saleItems)
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
   }
@@ -667,9 +744,7 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
     if (isDelivered) {
       await updateDeliveredProductQuantities(releaseItems, payload.items, productsMap)
     } else {
-      const releaseMap = await loadProducts(releaseItems.map((item) => item.productId).filter(isValidId))
-      await updateProductQuantities(releaseItems, releaseMap, 'release')
-      await updateProductQuantities(payload.items, productsMap, 'reserve')
+      await updatePendingProductQuantities(id, releaseItems, payload.items, productsMap)
     }
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
