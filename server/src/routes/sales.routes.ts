@@ -491,20 +491,43 @@ router.get('/', async (request, response) => {
     const normalizedSearch = search.trim().toLowerCase()
     if (normalizedSearch) {
       const pattern = `%${normalizedSearch}%`
-      const { data: clientRows, error: clientError } = await supabase
-        .from('clients')
-        .select('id')
-        .ilike('name', pattern)
+      const [
+        { data: clientRows, error: clientError },
+        { data: productRows, error: productError },
+      ] = await Promise.all([
+        supabase
+          .from('clients')
+          .select('id')
+          .ilike('name', pattern),
+        supabase
+          .from('products')
+          .select('id')
+          .or(`name.ilike.${pattern},sku.ilike.${pattern}`),
+      ])
       if (clientError) {
         return response.status(500).json({ message: clientError.message })
       }
-      const clientIds = (clientRows ?? []).map((row) => row.id).filter(isValidId)
-      if (clientIds.length > 0) {
-        const idList = clientIds.join(',')
-        query = query.or(`publicId.ilike.${pattern},clientId.in.(${idList})`)
-      } else {
-        query = query.ilike('publicId', pattern)
+      if (productError) {
+        return response.status(500).json({ message: productError.message })
       }
+      const clientIds = (clientRows ?? []).map((row) => row.id).filter(isValidId)
+      const productIds = (productRows ?? []).map((row) => row.id).filter(isValidId)
+      const saleItemFilters = [`customName.ilike.${pattern},customSku.ilike.${pattern}`]
+      if (productIds.length > 0) {
+        saleItemFilters.push(`productId.in.(${productIds.join(',')})`)
+      }
+      const { data: saleItemRows, error: saleItemError } = await supabase
+        .from('sale_items')
+        .select('saleId')
+        .or(saleItemFilters.join(','))
+      if (saleItemError) {
+        return response.status(500).json({ message: saleItemError.message })
+      }
+      const matchedSaleIds = Array.from(new Set((saleItemRows ?? []).map((row) => row.saleId).filter(isValidId)))
+      const searchFilters = [`publicId.ilike.${pattern}`]
+      if (clientIds.length > 0) searchFilters.push(`clientId.in.(${clientIds.join(',')})`)
+      if (matchedSaleIds.length > 0) searchFilters.push(`id.in.(${matchedSaleIds.join(',')})`)
+      query = query.or(searchFilters.join(','))
     }
   }
   if (typeof method === 'string' && method !== 'all') {

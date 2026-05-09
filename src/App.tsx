@@ -4284,7 +4284,7 @@ const focusInventoryPanel = (productId?: string) => {
           </div>
           <div className="sales-search">
             <input
-              placeholder="Buscar por cliente, venda (#VEN) ou produto"
+              placeholder="Buscar por cliente, venda (#VEN), produto ou SKU"
               value={saleSearch}
               onChange={(event) => setSaleSearch(event.target.value)}
             />
