@@ -6987,7 +6987,7 @@ const focusInventoryPanel = (productId?: string) => {
             <div className="section-head">
               <div>
                 <p className="eyebrow">Editar produto</p>
-                <h2>{editProductModal.name}</h2>
+                <h2 title={editProductModal.name}>{editProductModal.name}</h2>
                 <p className="hero-sub">Atualize preço, custo e foto do catálogo.</p>
               </div>
               <button type="button" className="text-button" onClick={closeEditProductModal}>
@@ -6999,33 +6999,51 @@ const focusInventoryPanel = (productId?: string) => {
                 <div className="edit-product-grid">
                   <label>
                     Valor unitário
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={editProductForm.price}
-                      onChange={(event) => setEditProductForm((prev) => ({ ...prev, price: event.target.value }))}
-                    />
+                    <div className="money-input">
+                      <span>R$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={editProductForm.price}
+                        onChange={(event) => setEditProductForm((prev) => ({ ...prev, price: event.target.value }))}
+                      />
+                    </div>
                   </label>
                   <label>
                     Custo fábrica
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={editProductForm.factoryCost}
-                      onChange={(event) => setEditProductForm((prev) => ({ ...prev, factoryCost: event.target.value }))}
-                    />
+                    <div className="money-input">
+                      <span>R$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={editProductForm.factoryCost}
+                        onChange={(event) => setEditProductForm((prev) => ({ ...prev, factoryCost: event.target.value }))}
+                      />
+                    </div>
                   </label>
                 </div>
                 <label className="file-field edit-product-file">
-                  Foto do produto
-                  <input type="file" accept="image/*" onChange={handleEditProductImageUpload} />
+                  <span>Foto do produto</span>
+                  <input id="edit-product-image" type="file" accept="image/*" onChange={handleEditProductImageUpload} />
+                  <span className="upload-dropzone">
+                    <strong>Selecionar imagem</strong>
+                    <small>PNG, JPG ou WEBP para atualizar o catálogo</small>
+                  </span>
                 </label>
               </div>
               {editProductPreview && (
                 <div className="edit-product-preview">
-                  <img src={editProductPreview} alt="Prévia do produto" />
+                  <div className="edit-product-image-frame">
+                    <img
+                      src={editProductPreview}
+                      alt="Prévia do produto"
+                      onError={(event) => {
+                        event.currentTarget.src = DEFAULT_PRODUCT_IMAGE
+                      }}
+                    />
+                  </div>
                   <button type="button" className="ghost" onClick={() => {
                     setEditProductPreview(editProductModal.imageUrl)
                     setEditProductForm((prev) => ({ ...prev, image: editProductModal.imageUrl }))

@@ -471,6 +471,15 @@
     padding: 18px;
   }
 
+  .edit-product-modal .section-head h2 {
+    font-size: 22px;
+    -webkit-line-clamp: 3;
+  }
+
+  .edit-product-image-frame {
+    max-height: 260px;
+  }
+
   .user-card {
     gap: 10px;
   }
