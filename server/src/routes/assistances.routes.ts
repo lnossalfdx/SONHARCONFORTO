@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth.js'
+import { roleGuard } from '../middleware/roleGuard.js'
 import { supabase } from '../lib/supabase.js'
 
 const router = Router()
@@ -17,6 +18,16 @@ const assistanceSchema = z.object({
 })
 
 const statusSchema = z.object({ status: z.enum(['aberta', 'concluida']), factoryResponse: z.string().optional() })
+const assistanceUpdateSchema = z.object({
+  saleId: z.string().min(5).optional(),
+  productId: z.string().min(5).nullable().optional(),
+  defectDescription: z.string().min(5).optional(),
+  factoryResponse: z.string().optional(),
+  expectedDate: z.string().datetime().nullable().optional(),
+  photos: z.array(z.string()).max(4).optional(),
+  notes: z.string().optional(),
+  status: z.enum(['aberta', 'concluida']).optional(),
+})
 
 const randomCode = () => `AST-${Math.floor(Math.random() * 900 + 100)}`
 const ASSISTANCE_SELECT =
@@ -55,7 +66,7 @@ router.get('/', async (request, response) => {
   return response.json(filtered)
 })
 
-router.post('/', async (request, response) => {
+router.post('/', roleGuard('admin'), async (request, response) => {
   const payload = assistanceSchema.parse(request.body)
   const { data: sale, error: saleError } = await supabase.from('sales').select('id').eq('id', payload.saleId).single()
   if (saleError || !sale) return response.status(404).json({ message: 'Venda não encontrada.' })
@@ -80,7 +91,38 @@ router.post('/', async (request, response) => {
   return response.status(201).json(data)
 })
 
-router.patch('/:id/status', async (request, response) => {
+router.put('/:id', roleGuard('admin'), async (request, response) => {
+  const payload = assistanceUpdateSchema.parse(request.body)
+  const { id } = request.params
+  if (payload.saleId) {
+    const { data: sale, error: saleError } = await supabase.from('sales').select('id').eq('id', payload.saleId).single()
+    if (saleError || !sale) return response.status(404).json({ message: 'Venda não encontrada.' })
+  }
+  const updatePayload: Record<string, unknown> = {}
+  if ('saleId' in payload) updatePayload.saleId = payload.saleId
+  if ('productId' in payload) updatePayload.productId = payload.productId ?? null
+  if ('defectDescription' in payload) updatePayload.defectDescription = payload.defectDescription
+  if ('factoryResponse' in payload) updatePayload.factoryResponse = payload.factoryResponse ?? null
+  if ('expectedDate' in payload) {
+    updatePayload.expectedDate = payload.expectedDate ? new Date(payload.expectedDate).toISOString() : null
+  }
+  if ('photos' in payload) updatePayload.photos = payload.photos ?? []
+  if ('notes' in payload) updatePayload.notes = payload.notes ?? null
+  if ('status' in payload) updatePayload.status = payload.status
+
+  const { data, error } = await supabase
+    .from('assistances')
+    .update(updatePayload)
+    .eq('id', id)
+    .select(ASSISTANCE_FULL_SELECT)
+    .single()
+  if (error || !data) {
+    return response.status(404).json({ message: error?.message ?? 'Assistência não encontrada.' })
+  }
+  return response.json(data)
+})
+
+router.patch('/:id/status', roleGuard('admin'), async (request, response) => {
   const payload = statusSchema.parse(request.body)
   const { id } = request.params
   const { data, error } = await supabase

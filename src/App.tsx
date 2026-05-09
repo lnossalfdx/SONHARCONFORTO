@@ -369,6 +369,7 @@ const normalizeDateToIso = (value: string) => {
 }
 
 const PAYMENT_OVERRIDE_STORAGE_KEY = 'sonhar:payment-overrides'
+const ACTIVE_PAGE_STORAGE_KEY = 'sonhar:active-page'
 const STOCK_CACHE_KEY_PREFIX = 'sonhar:cache:stock'
 const SUMMARY_CACHE_KEY_PREFIX = 'sonhar:cache:summary'
 const STOCK_CACHE_TTL_SECONDS = 180
@@ -376,6 +377,7 @@ const SUMMARY_CACHE_TTL_SECONDS = 180
 const ITEMS_PER_PAGE = 10
 const STOCK_PAGE_SIZE = 200
 const STOCK_MOVEMENTS_PAGE_SIZE = 500
+const pageIds: PageId[] = ['dashboard', 'clientes', 'sleepLab', 'estoque', 'entregas', 'assistencias', 'financeiro']
 
 type CacheEntry<T> = { ts: number; data: T }
 
@@ -664,7 +666,15 @@ function App() {
   })
   const sidebarRef = useRef<HTMLDivElement | null>(null)
   const mobileToolbarTimerRef = useRef<number | null>(null)
-  const [activePage, setActivePage] = useState<PageId>('dashboard')
+  const [activePage, setActivePage] = useState<PageId>(() => {
+    if (typeof window === 'undefined') return 'dashboard'
+    try {
+      const storedPage = window.localStorage.getItem(ACTIVE_PAGE_STORAGE_KEY)
+      return pageIds.includes(storedPage as PageId) ? (storedPage as PageId) : 'dashboard'
+    } catch {
+      return 'dashboard'
+    }
+  })
   const viewingDashboard = activePage === 'dashboard'
   const viewingSleepLab = activePage === 'sleepLab'
   const viewingStockPage = activePage === 'estoque'
@@ -813,6 +823,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [assistanceStatusLoading, setAssistanceStatusLoading] = useState(false)
   const [assistanceForm, setAssistanceForm] = useState(() => createAssistanceFormState(initialSales))
   const [assistanceModal, setAssistanceModal] = useState<Assistance | null>(null)
+  const [editingAssistance, setEditingAssistance] = useState<Assistance | null>(null)
   const [assistanceSearch, setAssistanceSearch] = useState('')
   const [assistanceStatusFilter, setAssistanceStatusFilter] = useState<'all' | 'aberta' | 'concluida'>('all')
   const [assistanceDateStart, setAssistanceDateStart] = useState('')
@@ -1704,6 +1715,15 @@ useEffect(() => {
       setActivePage('dashboard')
     }
   }, [isAdmin, activePage])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, activePage)
+    } catch {
+      // Ignora navegadores sem armazenamento local disponível.
+    }
+  }, [activePage])
 
   useEffect(() => {
     setAssistanceForm((prev) => {
@@ -3136,6 +3156,31 @@ const focusInventoryPanel = (productId?: string) => {
     }))
   }
 
+  const resetAssistanceForm = () => {
+    setEditingAssistance(null)
+    setAssistanceSubmitError(null)
+    setAssistanceForm(createAssistanceFormState(sales))
+  }
+
+  const openEditAssistance = (assistance: Assistance) => {
+    if (!isAdmin) return
+    const sale = sales.find((item) => (item.backendId ?? item.id) === assistance.saleId)
+    const saleId = sale ? sale.backendId ?? sale.id : assistance.saleId
+    const productKey =
+      sale?.items.find((item) => item.productId && item.productId === assistance.productId)?.productId ??
+      (sale?.items[0] ? getSaleItemKey(sale.items[0], 0) : assistance.productId)
+    setEditingAssistance(assistance)
+    setAssistanceSubmitError(null)
+    setAssistanceForm({
+      saleId,
+      productId: productKey,
+      defectDescription: assistance.defectDescription,
+      factoryResponse: assistance.factoryResponse,
+      expectedDate: assistance.expectedDate ? assistance.expectedDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      photos: assistance.photos,
+    })
+  }
+
   const handleSaveMonthlyGoal = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!isAdmin) return
@@ -3171,7 +3216,7 @@ const focusInventoryPanel = (productId?: string) => {
   const handleRegisterAssistance = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!isAdmin) {
-      setAssistanceSubmitError('Apenas administradores podem registrar assistências.')
+      setAssistanceSubmitError('Apenas administradores podem salvar assistências.')
       return
     }
     if (!assistanceForm.saleId || !assistanceForm.productId || !assistanceForm.defectDescription.trim()) {
@@ -3195,20 +3240,26 @@ const focusInventoryPanel = (productId?: string) => {
     try {
       const payload = {
         saleId: selectedSale.backendId ?? selectedSale.id,
-        ...(selectedItem.productId ? { productId: selectedItem.productId } : {}),
+        ...(selectedItem.productId ? { productId: selectedItem.productId } : editingAssistance ? { productId: null } : {}),
         defectDescription: assistanceForm.defectDescription.trim(),
         factoryResponse: assistanceForm.factoryResponse.trim() || undefined,
         expectedDate: assistanceForm.expectedDate ? new Date(assistanceForm.expectedDate).toISOString() : undefined,
         photos: assistanceForm.photos.length > 0 ? assistanceForm.photos : undefined,
+        ...(editingAssistance ? { status: editingAssistance.status } : {}),
       }
-      const response = await fetch(`${API_BASE_URL}/assistances`, {
-        method: 'POST',
+      const response = await fetch(
+        editingAssistance
+          ? `${API_BASE_URL}/assistances/${editingAssistance.id}`
+          : `${API_BASE_URL}/assistances`,
+        {
+        method: editingAssistance ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
-      })
+        },
+      )
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null)
-        throw new Error(errorBody?.message ?? 'Não foi possível registrar a assistência.')
+        throw new Error(errorBody?.message ?? 'Não foi possível salvar a assistência.')
       }
       const data = await response.json()
       const normalizedAssistance = normalizeAssistance(data)
@@ -3216,11 +3267,17 @@ const focusInventoryPanel = (productId?: string) => {
         ...normalizedAssistance,
         productName: normalizedAssistance.productName || getSaleItemLabel(selectedItem),
       }
-      setAssistances((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
+      setAssistances((prev) =>
+        editingAssistance
+          ? prev.map((item) => (item.id === normalized.id ? normalized : item))
+          : [normalized, ...prev.filter((item) => item.id !== normalized.id)],
+      )
+      setAssistanceModal((prev) => (prev?.id === normalized.id ? normalized : prev))
+      setEditingAssistance(null)
       setAssistanceForm(createAssistanceFormState(sales))
     } catch (error) {
       console.error(error)
-      setAssistanceSubmitError(error instanceof Error ? error.message : 'Erro ao registrar assistência.')
+      setAssistanceSubmitError(error instanceof Error ? error.message : 'Erro ao salvar assistência.')
     } finally {
       setAssistanceSubmitLoading(false)
     }
@@ -3241,6 +3298,8 @@ const focusInventoryPanel = (productId?: string) => {
       const data = await response.json()
       const normalized = normalizeAssistance(data)
       setAssistances((prev) => prev.map((item) => (item.id === normalized.id ? normalized : item)))
+      setAssistanceModal((prev) => (prev?.id === normalized.id ? normalized : prev))
+      setEditingAssistance((prev) => (prev?.id === normalized.id ? normalized : prev))
       setAssistanceConfirm(null)
     } catch (error) {
       console.error(error)
@@ -5725,16 +5784,16 @@ const focusInventoryPanel = (productId?: string) => {
         <section className="panel assist-form">
           <div className="section-head">
             <div>
-              <p className="eyebrow">Registrar assistência</p>
-              <h2>Conecte venda, produto e defeito relatado</h2>
+              <p className="eyebrow">{editingAssistance ? `Editando #${editingAssistance.code}` : 'Registrar assistência'}</p>
+              <h2>{editingAssistance ? 'Atualize os dados da assistência' : 'Conecte venda, produto e defeito relatado'}</h2>
             </div>
             <button
               className="ghost"
               type="button"
-              onClick={() => setAssistanceForm(createAssistanceFormState(sales))}
+              onClick={resetAssistanceForm}
               disabled={!canManageAssistances}
             >
-              Limpar formulário
+              {editingAssistance ? 'Cancelar edição' : 'Limpar formulário'}
             </button>
           </div>
           <form className="assist-form-grid" onSubmit={handleRegisterAssistance}>
@@ -5861,10 +5920,14 @@ const focusInventoryPanel = (productId?: string) => {
                 className="primary"
                 disabled={!canSubmitAssistance || assistanceSubmitLoading}
                 title={
-                  canSubmitAssistance ? 'Registrar assistência' : 'Selecione venda, produto e descreva o defeito'
+                  canSubmitAssistance ? 'Salvar assistência' : 'Selecione venda, produto e descreva o defeito'
                 }
               >
-                {assistanceSubmitLoading ? 'Registrando...' : 'Registrar assistência'}
+                {assistanceSubmitLoading
+                  ? 'Salvando...'
+                  : editingAssistance
+                    ? 'Salvar edição'
+                    : 'Registrar assistência'}
               </button>
             </div>
           </form>
@@ -5953,6 +6016,11 @@ const focusInventoryPanel = (productId?: string) => {
                     <button type="button" className="ghost" onClick={() => setAssistanceModal(assistance)}>
                       Ver detalhes
                     </button>
+                    {canManageAssistances && (
+                      <button type="button" className="ghost" onClick={() => openEditAssistance(assistance)}>
+                        Editar
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="primary"
@@ -7167,6 +7235,20 @@ const focusInventoryPanel = (productId?: string) => {
                     Fechar
                   </button>
                 </div>
+                {isAdmin && (
+                  <div className="assist-modal-actions">
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        openEditAssistance(assistanceModal)
+                        setAssistanceModal(null)
+                      }}
+                    >
+                      Editar assistência
+                    </button>
+                  </div>
+                )}
                 <div className="assist-modal-body">
                   <div className="assist-modal-summary">
                     <div>
