@@ -224,6 +224,20 @@
     gap: 6px;
   }
 
+  .delivery-agenda-toolbar,
+  .calendar-nav {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .delivery-agenda-toolbar {
+    flex-direction: column;
+  }
+
+  .calendar-nav button {
+    flex: 1;
+  }
+
   .section-head h2 {
     font-size: 20px;
   }
@@ -430,7 +444,9 @@
   }
 
   .calendar-card {
+    grid-template-columns: 1fr;
     gap: 8px;
+    align-items: flex-start;
   }
 
   .assist-form-grid,
@@ -442,8 +458,13 @@
   .user-grid,
   .profile-info-grid,
   .edit-product-grid,
+  .edit-product-body,
   .assist-modal-photos {
     grid-template-columns: 1fr;
+  }
+
+  .edit-product-modal {
+    padding: 18px;
   }
 
   .user-card {

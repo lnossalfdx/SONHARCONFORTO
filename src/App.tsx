@@ -4394,14 +4394,25 @@ const focusInventoryPanel = (productId?: string) => {
         acc[sale.deliveryDate] = acc[sale.deliveryDate] ? [...acc[sale.deliveryDate], sale] : [sale]
         return acc
       }, {})
+    const monthLabel = calendarRange[0]
+      ? new Date(calendarRange[0]).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      : ''
+    const visibleDeliveryCount = Object.values(deliveriesByDate).reduce((sum, daySales) => sum + daySales.length, 0)
+    const pendingDeliveryCount = Object.values(deliveriesByDate)
+      .flat()
+      .filter((sale) => sale.status === 'pendente').length
+    const deliveredDeliveryCount = Object.values(deliveriesByDate)
+      .flat()
+      .filter((sale) => sale.status === 'entregue').length
 
     return (
       <div className="page-stack">
-        <section className="panel">
+        <section className="panel delivery-agenda-panel">
           <div className="section-head">
             <div>
               <p className="eyebrow">Entregas</p>
               <h2>Agenda completa</h2>
+              <p className="hero-sub">{monthLabel} · {visibleDeliveryCount} entregas no filtro atual</p>
             </div>
             <div className="calendar-nav">
               <button className="ghost" type="button" onClick={() => setDeliveryMonthOffset((prev) => Math.max(0, prev - 1))} disabled={deliveryMonthOffset === 0}>
@@ -4412,23 +4423,29 @@ const focusInventoryPanel = (productId?: string) => {
               </button>
             </div>
           </div>
-          <div className="filter-pills">
-            {(
-              [
-                { id: 'all', label: 'Todas' },
-                { id: 'pendente', label: 'Pendentes' },
-                { id: 'entregue', label: 'Entregues' },
-              ] as const
-            ).map((filter) => (
-              <button
-                type="button"
-                key={filter.id}
-                className={deliveryFilter === filter.id ? 'active' : ''}
-                onClick={() => setDeliveryFilter(filter.id)}
-              >
-                {filter.label}
-              </button>
-            ))}
+          <div className="delivery-agenda-toolbar">
+            <div className="filter-pills">
+              {(
+                [
+                  { id: 'all', label: 'Todas' },
+                  { id: 'pendente', label: 'Pendentes' },
+                  { id: 'entregue', label: 'Entregues' },
+                ] as const
+              ).map((filter) => (
+                <button
+                  type="button"
+                  key={filter.id}
+                  className={deliveryFilter === filter.id ? 'active' : ''}
+                  onClick={() => setDeliveryFilter(filter.id)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+            <div className="delivery-agenda-stats">
+              <span>{pendingDeliveryCount} pendentes</span>
+              <span>{deliveredDeliveryCount} entregues</span>
+            </div>
           </div>
           {salesLoading && <p className="empty-state">Carregando vendas...</p>}
           {!salesLoading && salesError && <p className="empty-state">{salesError}</p>}
@@ -4448,6 +4465,7 @@ const focusInventoryPanel = (productId?: string) => {
                         <div className={`calendar-card ${sale.status}`} key={sale.id}>
                           <div>
                             <strong>{client?.name ?? sale.clientName ?? 'Cliente removido'}</strong>
+                            <span className="calendar-sale-id">#{sale.id}</span>
                             <p className="sale-meta mini">
                               {sale.items
                                 .map(
@@ -6967,49 +6985,53 @@ const focusInventoryPanel = (productId?: string) => {
               <div>
                 <p className="eyebrow">Editar produto</p>
                 <h2>{editProductModal.name}</h2>
-                <p className="hero-sub">Atualize valores e imagem para manter o catálogo alinhado.</p>
+                <p className="hero-sub">Atualize preço, custo e foto do catálogo.</p>
               </div>
               <button type="button" className="text-button" onClick={closeEditProductModal}>
                 Fechar
               </button>
             </div>
-            <div className="edit-product-grid">
-              <label>
-                Valor unitário (R$)
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={editProductForm.price}
-                  onChange={(event) => setEditProductForm((prev) => ({ ...prev, price: event.target.value }))}
-                />
-              </label>
-              <label>
-                Custo fábrica (R$)
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={editProductForm.factoryCost}
-                  onChange={(event) => setEditProductForm((prev) => ({ ...prev, factoryCost: event.target.value }))}
-                />
-              </label>
-            </div>
-            <label className="file-field">
-              Foto do produto
-              <input type="file" accept="image/*" onChange={handleEditProductImageUpload} />
-            </label>
-            {editProductPreview && (
-              <div className="edit-product-preview">
-                <img src={editProductPreview} alt="Prévia do produto" />
-                <button type="button" className="ghost" onClick={() => {
-                  setEditProductPreview(editProductModal.imageUrl)
-                  setEditProductForm((prev) => ({ ...prev, image: editProductModal.imageUrl }))
-                }}>
-                  Reverter para imagem atual
-                </button>
+            <div className="edit-product-body">
+              <div className="edit-product-fields">
+                <div className="edit-product-grid">
+                  <label>
+                    Valor unitário
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={editProductForm.price}
+                      onChange={(event) => setEditProductForm((prev) => ({ ...prev, price: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Custo fábrica
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={editProductForm.factoryCost}
+                      onChange={(event) => setEditProductForm((prev) => ({ ...prev, factoryCost: event.target.value }))}
+                    />
+                  </label>
+                </div>
+                <label className="file-field edit-product-file">
+                  Foto do produto
+                  <input type="file" accept="image/*" onChange={handleEditProductImageUpload} />
+                </label>
               </div>
-            )}
+              {editProductPreview && (
+                <div className="edit-product-preview">
+                  <img src={editProductPreview} alt="Prévia do produto" />
+                  <button type="button" className="ghost" onClick={() => {
+                    setEditProductPreview(editProductModal.imageUrl)
+                    setEditProductForm((prev) => ({ ...prev, image: editProductModal.imageUrl }))
+                  }}>
+                    Reverter imagem
+                  </button>
+                </div>
+              )}
+            </div>
             {editProductError && <p className="login-error">{editProductError}</p>}
             <div className="modal-actions">
               <button type="button" className="ghost" onClick={closeEditProductModal} disabled={editProductLoading}>
