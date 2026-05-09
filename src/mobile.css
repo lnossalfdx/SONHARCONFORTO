@@ -271,6 +271,10 @@
     grid-template-columns: 1fr;
   }
 
+  .hero-highlight {
+    min-height: auto;
+  }
+
   .glass-card {
     border-radius: 16px;
   }
@@ -507,6 +511,18 @@
     gap: 20px;
   }
 
+  .login-brand-lockup {
+    margin-bottom: 8px;
+  }
+
+  .login-hero-copy h1 {
+    font-size: 34px;
+  }
+
+  .login-hero-copy > p:not(.eyebrow) {
+    font-size: 15px;
+  }
+
   .login-card-inner {
     padding: 24px;
     transform: none;
@@ -520,6 +536,11 @@
   .login-hero-stat {
     width: 100%;
     max-width: 220px;
+  }
+
+  .login-hero-stat.secondary {
+    right: 20px;
+    bottom: 20px;
   }
 
   .goal-form-actions {

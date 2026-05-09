@@ -3530,10 +3530,10 @@ const focusInventoryPanel = (productId?: string) => {
 
         <section className="panel hero-banner">
           <div className="hero-banner-left">
-            <p className="eyebrow">Visão estratégica</p>
-            <h1>Experiência de venda guiada e moderna</h1>
+            <p className="eyebrow">Painel operacional</p>
+            <h1>Visão clara para vender, entregar e acompanhar.</h1>
             <p className="hero-sub">
-              Priorize ações e acompanhe indicadores críticos da loja em um único lugar.
+              Acompanhe o que precisa de ação hoje, sem perder vendas, estoque ou entregas de vista.
             </p>
             <div className="hero-actions">
               <button
@@ -3731,30 +3731,33 @@ const focusInventoryPanel = (productId?: string) => {
       </div>
       <div className="login-shell">
         <div className="login-hero-copy">
-          <p className="eyebrow">Sonhar Conforto · Operação integrada</p>
-          <h1>Conecte-se ao painel que move sua equipe.</h1>
+          <div className="login-brand-lockup">
+            <img src="/sonhar-logo.jpg" alt="Sonhar Conforto" />
+            <span>Sonhar Conforto</span>
+          </div>
+          <p className="eyebrow">Operação integrada</p>
+          <h1>Acesse o painel da loja.</h1>
           <p>
-            Dados em tempo real, estoque inteligente e entregas monitoradas com uma identidade mais leve e moderna.
-            Sem temas sazonais — apenas o foco no que importa: produtividade.
+            Vendas, estoque, clientes e entregas em um só lugar para a equipe trabalhar com mais controle.
           </p>
-          <div className="login-hero-visual">
-            <span className="login-orbit orbit-one" />
-            <span className="login-orbit orbit-two" />
-            <span className="login-orbit orbit-three" />
+          <div className="login-hero-visual" aria-hidden="true">
             <div className="login-hero-stat primary">
-              <p className="eyebrow">Disponibilidade</p>
-              <strong>99,96%</strong>
-              <span>Infra monitorada 24/7</span>
+              <p className="eyebrow">Rotina</p>
+              <strong>CRM</strong>
+              <span>Clientes, vendas e entregas</span>
             </div>
             <div className="login-hero-stat secondary">
-              <p className="eyebrow">Atualizações</p>
-              <strong>+48</strong>
-              <span>Itens sincronizados hoje</span>
+              <p className="eyebrow">Controle</p>
+              <strong>Estoque</strong>
+              <span>Entradas, saídas e reservas</span>
             </div>
           </div>
         </div>
         <div className="login-card">
           <div className="login-card-inner">
+            <div className="login-card-mark">
+              <img src="/sonhar-logo.jpg" alt="" />
+            </div>
             <p className="eyebrow">Acesse sua conta</p>
             <h2>Entre para continuar</h2>
             <form className="login-form" onSubmit={handleLogin}>
