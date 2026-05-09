@@ -4197,6 +4197,14 @@ textarea:focus {
   position: relative;
 }
 
+.assist-sale-search {
+  position: relative;
+}
+
+.assist-sale-dropdown {
+  max-height: 280px;
+}
+
 .search-dropdown {
   position: absolute;
   left: 0;

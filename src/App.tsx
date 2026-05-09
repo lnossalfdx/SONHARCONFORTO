@@ -809,6 +809,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
   const receiptContentRef = useRef<HTMLDivElement | null>(null)
   const inventoryPanelRef = useRef<HTMLElement | null>(null)
+  const assistanceFormRef = useRef<HTMLElement | null>(null)
   const customItemPlaceholder =
     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" rx="16" fill="%23eef2ff"/><path d="M40 22v36M22 40h36" stroke="%23315ec8" stroke-width="6" stroke-linecap="round"/></svg>'
   const [profileModalOpen, setProfileModalOpen] = useState(false)
@@ -824,11 +825,35 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const [assistanceForm, setAssistanceForm] = useState(() => createAssistanceFormState(initialSales))
   const [assistanceModal, setAssistanceModal] = useState<Assistance | null>(null)
   const [editingAssistance, setEditingAssistance] = useState<Assistance | null>(null)
+  const [assistanceSaleSearch, setAssistanceSaleSearch] = useState('')
+  const [assistanceSaleSearchFocused, setAssistanceSaleSearchFocused] = useState(false)
   const [assistanceSearch, setAssistanceSearch] = useState('')
   const [assistanceStatusFilter, setAssistanceStatusFilter] = useState<'all' | 'aberta' | 'concluida'>('all')
   const [assistanceDateStart, setAssistanceDateStart] = useState('')
   const [assistanceDateEnd, setAssistanceDateEnd] = useState('')
   const [assistanceConfirm, setAssistanceConfirm] = useState<Assistance | null>(null)
+  const getAssistanceSaleLabel = useCallback(
+    (sale: Sale) => {
+      const client = clients.find((clientItem) => clientItem.id === sale.clientId)
+      return `${sale.id} · ${client?.name ?? sale.clientName ?? 'Cliente removido'}`
+    },
+    [clients],
+  )
+  const assistanceSaleOptions = useMemo(() => {
+    const query = assistanceSaleSearch.trim().toLowerCase()
+    const searchableSales = sales.filter((sale) => sale.items.length > 0)
+    if (!query) return searchableSales.slice(0, 12)
+    return searchableSales
+      .filter((sale) => {
+        const client = clients.find((clientItem) => clientItem.id === sale.clientId)
+        const products = sale.items
+          .map((item) => item.productName ?? item.customName ?? item.searchName ?? '')
+          .join(' ')
+        const blob = `${sale.id} ${client?.name ?? sale.clientName ?? ''} ${products}`.toLowerCase()
+        return blob.includes(query)
+      })
+      .slice(0, 12)
+  }, [assistanceSaleSearch, clients, sales])
   const needsAssistancesData = viewingAssistances || assistanceModal !== null || assistanceConfirm !== null
   const [userManagerOpen, setUserManagerOpen] = useState(false)
   const [userForm, setUserForm] = useState({ name: '', email: '', phone: '', role: 'seller' as UserRole })
@@ -1108,6 +1133,12 @@ useEffect(() => {
     setSaleClientSearch('')
   }
 }, [clients, saleForm.clientId, clientSearchFocused])
+
+useEffect(() => {
+  if (assistanceSaleSearchFocused) return
+  const selected = sales.find((sale) => (sale.backendId ?? sale.id) === assistanceForm.saleId)
+  setAssistanceSaleSearch(selected ? getAssistanceSaleLabel(selected) : '')
+}, [assistanceForm.saleId, assistanceSaleSearchFocused, getAssistanceSaleLabel, sales])
 
 useEffect(() => {
   setSalesPage(1)
@@ -3159,7 +3190,10 @@ const focusInventoryPanel = (productId?: string) => {
   const resetAssistanceForm = () => {
     setEditingAssistance(null)
     setAssistanceSubmitError(null)
-    setAssistanceForm(createAssistanceFormState(sales))
+    const nextForm = createAssistanceFormState(sales)
+    setAssistanceForm(nextForm)
+    const nextSale = sales.find((sale) => (sale.backendId ?? sale.id) === nextForm.saleId)
+    setAssistanceSaleSearch(nextSale ? getAssistanceSaleLabel(nextSale) : '')
   }
 
   const openEditAssistance = (assistance: Assistance) => {
@@ -3171,6 +3205,7 @@ const focusInventoryPanel = (productId?: string) => {
       (sale?.items[0] ? getSaleItemKey(sale.items[0], 0) : assistance.productId)
     setEditingAssistance(assistance)
     setAssistanceSubmitError(null)
+    setAssistanceSaleSearch(sale ? getAssistanceSaleLabel(sale) : assistance.saleCode || assistance.saleId)
     setAssistanceForm({
       saleId,
       productId: productKey,
@@ -3178,6 +3213,9 @@ const focusInventoryPanel = (productId?: string) => {
       factoryResponse: assistance.factoryResponse,
       expectedDate: assistance.expectedDate ? assistance.expectedDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
       photos: assistance.photos,
+    })
+    requestAnimationFrame(() => {
+      assistanceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
   }
 
@@ -3274,7 +3312,10 @@ const focusInventoryPanel = (productId?: string) => {
       )
       setAssistanceModal((prev) => (prev?.id === normalized.id ? normalized : prev))
       setEditingAssistance(null)
-      setAssistanceForm(createAssistanceFormState(sales))
+      const nextForm = createAssistanceFormState(sales)
+      setAssistanceForm(nextForm)
+      const nextSale = sales.find((sale) => (sale.backendId ?? sale.id) === nextForm.saleId)
+      setAssistanceSaleSearch(nextSale ? getAssistanceSaleLabel(nextSale) : '')
     } catch (error) {
       console.error(error)
       setAssistanceSubmitError(error instanceof Error ? error.message : 'Erro ao salvar assistência.')
@@ -5732,6 +5773,18 @@ const focusInventoryPanel = (productId?: string) => {
       canManageAssistances &&
       Boolean(selectedSale) &&
       Boolean(selectedAssistanceItem && assistanceForm.defectDescription.trim())
+    const selectAssistanceSale = (sale: Sale) => {
+      const nextSaleId = sale.backendId ?? sale.id
+      const nextProductId = sale.items[0] ? getSaleItemKey(sale.items[0], 0) : ''
+      setAssistanceSubmitError(null)
+      setAssistanceForm((prev) => ({
+        ...prev,
+        saleId: nextSaleId,
+        productId: nextProductId,
+      }))
+      setAssistanceSaleSearch(getAssistanceSaleLabel(sale))
+      setAssistanceSaleSearchFocused(false)
+    }
 
     return (
       <div className="assistances page-stack">
@@ -5781,7 +5834,7 @@ const focusInventoryPanel = (productId?: string) => {
           </div>
         </section>
 
-        <section className="panel assist-form">
+        <section className="panel assist-form" ref={assistanceFormRef}>
           <div className="section-head">
             <div>
               <p className="eyebrow">{editingAssistance ? `Editando #${editingAssistance.code}` : 'Registrar assistência'}</p>
@@ -5800,30 +5853,48 @@ const focusInventoryPanel = (productId?: string) => {
             <div className="assist-form-main">
               <label>
                 Venda vinculada
-                <select
-                  value={assistanceForm.saleId}
-                  onChange={(event) => {
-                    const nextSaleId = event.target.value
-                    const sale = sales.find((item) => (item.backendId ?? item.id) === nextSaleId)
-                    const nextProductId = sale?.items[0] ? getSaleItemKey(sale.items[0], 0) : ''
-                    setAssistanceForm((prev) => ({
-                      ...prev,
-                      saleId: nextSaleId,
-                      productId: nextProductId,
-                    }))
-                  }}
-                  disabled={!sales.length || !canManageAssistances}
-                >
-                  {sales.map((sale) => {
-                    const client = clients.find((clientItem) => clientItem.id === sale.clientId)
-                    return (
-                      <option key={sale.id} value={sale.backendId ?? sale.id}>
-                        {sale.id} · {client?.name ?? sale.clientName ?? 'Cliente removido'}
-                      </option>
-                    )
-                  })}
-                  {!sales.length && <option value="">Cadastre uma venda para iniciar</option>}
-                </select>
+                <div className="assist-sale-search">
+                  <input
+                    value={assistanceSaleSearch}
+                    onFocus={() => setAssistanceSaleSearchFocused(true)}
+                    onBlur={() => {
+                      setTimeout(() => setAssistanceSaleSearchFocused(false), 150)
+                    }}
+                    onChange={(event) => {
+                      setAssistanceSaleSearch(event.target.value)
+                      setAssistanceSaleSearchFocused(true)
+                    }}
+                    placeholder="Pesquise por cliente, código da venda ou produto"
+                    disabled={!sales.length || !canManageAssistances}
+                    autoComplete="off"
+                  />
+                  {assistanceSaleSearchFocused && canManageAssistances && (
+                    <div className="search-dropdown assist-sale-dropdown">
+                      {assistanceSaleOptions.length ? (
+                        assistanceSaleOptions.map((sale) => {
+                          const itemSummary = sale.items
+                            .map((item) => item.productName ?? item.customName ?? item.searchName ?? '')
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .join(' · ')
+                          return (
+                            <button
+                              type="button"
+                              key={sale.backendId ?? sale.id}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectAssistanceSale(sale)}
+                            >
+                              <strong>{getAssistanceSaleLabel(sale)}</strong>
+                              <span>{itemSummary || 'Venda sem descrição de itens'}</span>
+                            </button>
+                          )
+                        })
+                      ) : (
+                        <p className="empty-state">Nenhuma venda encontrada.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </label>
               <label>
                 Produto reportado
