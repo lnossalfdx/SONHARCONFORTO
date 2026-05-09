@@ -116,6 +116,16 @@ CORS_ALLOWED_ORIGINS=https://resp.sonharconforto.com.br,https://sonharconforto.c
 
 ## 7. Instalar dependencias e gerar build
 
+### Banco Supabase
+
+Antes de publicar esta versão, rode no SQL Editor do Supabase o arquivo:
+
+```text
+supabase/migrations/20260508_stock_assistance_deploy.sql
+```
+
+Ele deixa `assistances.productId` opcional para a assistência não quebrar quando a venda tiver item personalizado.
+
 ### Frontend
 
 ```bash

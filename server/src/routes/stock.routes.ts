@@ -96,6 +96,18 @@ router.post('/', authMiddleware, roleGuard('admin'), async (request, response) =
   if (error || !data) {
     return response.status(400).json({ message: error?.message ?? 'Não foi possível criar produto.' })
   }
+  if (data.quantity > 0) {
+    const { error: movementError } = await supabase.from('stock_movements').insert({
+      productId: data.id,
+      userId: request.user!.id,
+      type: 'entrada',
+      amount: data.quantity,
+      note: 'Entrada inicial do cadastro do produto',
+    })
+    if (movementError) {
+      return response.status(400).json({ message: movementError.message })
+    }
+  }
   return response.status(201).json(data)
 })
 
@@ -162,7 +174,7 @@ router.get('/movements', authMiddleware, async (request, response) => {
   const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0
   let query = supabase
     .from('stock_movements')
-    .select('id, productId, type, amount, note, createdAt')
+    .select('id, productId, type, amount, note, createdAt, product:productId(id, name, sku)')
     .order('createdAt', { ascending: false })
     .range(safeOffset, safeOffset + safeLimit - 1)
   if (type === 'entrada' || type === 'saida') {

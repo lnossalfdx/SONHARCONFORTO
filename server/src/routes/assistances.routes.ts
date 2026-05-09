@@ -8,7 +8,7 @@ router.use(authMiddleware)
 
 const assistanceSchema = z.object({
   saleId: z.string().min(5),
-  productId: z.string().min(5),
+  productId: z.string().min(5).optional(),
   defectDescription: z.string().min(5),
   factoryResponse: z.string().optional(),
   expectedDate: z.string().datetime().optional(),
@@ -64,7 +64,7 @@ router.post('/', async (request, response) => {
     .insert({
       code: randomCode(),
       saleId: payload.saleId,
-      productId: payload.productId,
+      productId: payload.productId ?? null,
       defectDescription: payload.defectDescription,
       factoryResponse: payload.factoryResponse ?? null,
       expectedDate: payload.expectedDate ? new Date(payload.expectedDate).toISOString() : null,

@@ -173,22 +173,43 @@ const loadProducts = async (productIds: string[]) => {
   return new Map((data ?? []).map((product) => [product.id, product]))
 }
 
-const applySystemPrices = (
+const enforceSellerMinimumPrices = (
   items: SaleItemInput[],
   productMap: Map<string, any>,
   enforce: boolean,
 ) => {
   if (!enforce) return items
-  return items.map((item) => {
-    if (!item.productId) return item
+  for (const item of items) {
+    if (!item.productId) continue
     const product = productMap.get(item.productId)
-    if (!product) return item
+    if (!product) continue
     const price = Number(product.price ?? 0)
-    return {
-      ...item,
-      unitPrice: Number.isFinite(price) ? price : 0,
+    const minimumPrice = Number.isFinite(price) ? price : 0
+    if (item.unitPrice < minimumPrice) {
+      throw new Error(`Preço de ${product.name ?? item.productId} não pode ficar abaixo do cadastrado.`)
     }
+  }
+  return items
+}
+
+const recordStockMovement = async (
+  productId: string,
+  userId: string | null | undefined,
+  type: 'entrada' | 'saida',
+  amount: number,
+  note: string,
+) => {
+  if (!amount || amount <= 0) return
+  const { error } = await supabase.from('stock_movements').insert({
+    productId,
+    userId: userId ?? null,
+    type,
+    amount,
+    note,
   })
+  if (error) {
+    throw new Error(error.message)
+  }
 }
 
 const fetchSale = async (id: string) => {
@@ -278,6 +299,8 @@ const updateDeliveredProductQuantities = async (
   previousItems: Array<{ productId?: string | null; quantity: number }>,
   nextItems: SaleItemInput[],
   productMap: Map<string, any>,
+  userId: string | null | undefined,
+  saleLabel: string,
 ) => {
   const previousTotals = sumQuantitiesByProductId(previousItems)
   const nextTotals = sumQuantitiesByProductId(nextItems)
@@ -298,6 +321,13 @@ const updateDeliveredProductQuantities = async (
     if (error) {
       throw new Error(error.message)
     }
+    await recordStockMovement(
+      productId,
+      userId,
+      delta > 0 ? 'saida' : 'entrada',
+      Math.abs(delta),
+      delta > 0 ? `Ajuste de venda entregue ${saleLabel}` : `Devolução por ajuste de venda entregue ${saleLabel}`,
+    )
     product.quantity = nextProductQuantity
   }
 }
@@ -307,6 +337,8 @@ const updatePendingProductQuantities = async (
   previousItems: Array<{ productId?: string | null; quantity: number }>,
   nextItems: SaleItemInput[],
   productMap: Map<string, any>,
+  userId: string | null | undefined,
+  saleLabel: string,
 ) => {
   const previousTotals = sumQuantitiesByProductId(previousItems)
   const nextTotals = sumQuantitiesByProductId(nextItems)
@@ -339,6 +371,17 @@ const updatePendingProductQuantities = async (
 
     if (error) {
       throw new Error(error.message)
+    }
+
+    const quantityDelta = nextProductQuantity - currentQuantity
+    if (quantityDelta !== 0) {
+      await recordStockMovement(
+        productId,
+        userId,
+        quantityDelta > 0 ? 'entrada' : 'saida',
+        Math.abs(quantityDelta),
+        quantityDelta > 0 ? `Devolução por ajuste da venda ${saleLabel}` : `Saída por ajuste da venda ${saleLabel}`,
+      )
     }
 
     product.quantity = nextProductQuantity
@@ -374,6 +417,8 @@ const updateProductQuantities = async (
   items: SaleItemInput[],
   productMap: Map<string, any>,
   direction: 'reserve' | 'release' | 'deliver',
+  userId?: string | null,
+  movementNote?: string,
 ) => {
   for (const item of items) {
     if (!item.productId) continue
@@ -399,6 +444,11 @@ const updateProductQuantities = async (
     const { error } = await supabase.from('products').update(updates).eq('id', item.productId)
     if (error) {
       throw new Error(error.message)
+    }
+    if (direction === 'reserve') {
+      await recordStockMovement(item.productId, userId, 'saida', item.quantity, movementNote ?? 'Saída por venda')
+    } else if (direction === 'release') {
+      await recordStockMovement(item.productId, userId, 'entrada', item.quantity, movementNote ?? 'Entrada por cancelamento de venda')
     }
   }
 }
@@ -536,7 +586,12 @@ router.post('/', async (request, response) => {
   } catch (error) {
     return response.status(500).json({ message: (error as Error).message })
   }
-  const saleItems = applySystemPrices(payload.items, productsMap, !isAdmin)
+  let saleItems: SaleItemInput[]
+  try {
+    saleItems = enforceSellerMinimumPrices(payload.items, productsMap, !isAdmin)
+  } catch (error) {
+    return response.status(400).json({ message: (error as Error).message })
+  }
   try {
     validateStock(saleItems, productsMap)
   } catch (error) {
@@ -589,7 +644,13 @@ router.post('/', async (request, response) => {
   }
 
   try {
-    await updateProductQuantities(saleItems, productsMap, 'reserve')
+    await updateProductQuantities(
+      saleItems,
+      productsMap,
+      'reserve',
+      request.user?.id,
+      `Saída por venda ${identifiers.publicId}`,
+    )
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
   }
@@ -669,6 +730,8 @@ router.post('/:id/confirm-delivery', roleGuard(['admin', 'seller']), async (requ
       })),
       productsMap,
       'deliver',
+      request.user?.id,
+      `Entrega confirmada da venda ${sale.publicId ?? id}`,
     )
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
@@ -742,9 +805,9 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
   const requiresApproval = payload.items.some((item) => !item.productId)
   try {
     if (isDelivered) {
-      await updateDeliveredProductQuantities(releaseItems, payload.items, productsMap)
+      await updateDeliveredProductQuantities(releaseItems, payload.items, productsMap, request.user?.id, sale.publicId ?? id)
     } else {
-      await updatePendingProductQuantities(id, releaseItems, payload.items, productsMap)
+      await updatePendingProductQuantities(id, releaseItems, payload.items, productsMap, request.user?.id, sale.publicId ?? id)
     }
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
@@ -809,7 +872,13 @@ router.post('/:id/cancel', roleGuard('admin'), async (request, response) => {
   }))
   try {
     const releaseMap = await loadProducts(releaseItems.map((item) => item.productId).filter(isValidId))
-    await updateProductQuantities(releaseItems, releaseMap, 'release')
+    await updateProductQuantities(
+      releaseItems,
+      releaseMap,
+      'release',
+      request.user?.id,
+      `Entrada por cancelamento da venda ${sale.publicId ?? id}`,
+    )
   } catch (error) {
     return response.status(400).json({ message: (error as Error).message })
   }

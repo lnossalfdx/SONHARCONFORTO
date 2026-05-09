@@ -43,6 +43,7 @@ type StockItem = {
 type StockMovement = {
   id: string
   productId: string
+  productName?: string
   type: 'entrada' | 'saida'
   amount: number
   note: string
@@ -298,6 +299,7 @@ const normalizeStockItem = (product: any): StockItem => ({
 const normalizeMovement = (movement: any): StockMovement => ({
   id: movement.id,
   productId: movement.productId ?? movement.product?.id ?? '',
+  productName: movement.product?.name ?? movement.productName ?? '',
   type: movement.type === 'saida' ? 'saida' : 'entrada',
   amount: movement.amount ?? 0,
   note: movement.note ?? '',
@@ -330,7 +332,7 @@ const normalizeAssistance = (assistance: any): Assistance => ({
   owner: assistance.owner?.name ?? assistance.ownerName ?? 'Equipe Sonhar',
 })
 
-const getSaleItemKey = (item: SaleItem, index: number) => item.productId ?? `custom:${index}`
+const getSaleItemKey = (item: SaleItem, index: number) => item.productId || `custom:${index}`
 
 const getSaleItemLabel = (item: SaleItem) =>
   item.productName ?? item.customName ?? item.searchName ?? 'Item personalizado'
@@ -373,7 +375,7 @@ const STOCK_CACHE_TTL_SECONDS = 180
 const SUMMARY_CACHE_TTL_SECONDS = 180
 const ITEMS_PER_PAGE = 10
 const STOCK_PAGE_SIZE = 200
-const STOCK_MOVEMENTS_PAGE_SIZE = 200
+const STOCK_MOVEMENTS_PAGE_SIZE = 500
 
 type CacheEntry<T> = { ts: number; data: T }
 
@@ -1941,6 +1943,7 @@ const focusInventoryPanel = (productId?: string) => {
       }
       const updated = normalizeStockItem(await response.json())
       setStockItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setStockPageItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
       closeEditProductModal()
     } catch (error) {
       console.error(error)
@@ -2694,12 +2697,15 @@ const focusInventoryPanel = (productId?: string) => {
         setSaleModalError('Produto inválido. Atualize o estoque antes de vender.')
         return
       }
-      const resolvedUnitPrice = isAdmin ? item.unitPrice : product.price
+      if (!isAdmin && item.unitPrice < product.price) {
+        setSaleModalError(`O preço de ${product.name} não pode ficar abaixo do preço cadastrado.`)
+        return
+      }
       saleItems.push({
         kind: 'product',
         productId: item.productId,
         quantity: item.quantity,
-        unitPrice: resolvedUnitPrice,
+        unitPrice: item.unitPrice,
         discount: item.discount,
       })
       quantityCheck[item.productId] = (quantityCheck[item.productId] ?? 0) + item.quantity
@@ -3205,7 +3211,11 @@ const focusInventoryPanel = (productId?: string) => {
         throw new Error(errorBody?.message ?? 'Não foi possível registrar a assistência.')
       }
       const data = await response.json()
-      const normalized = normalizeAssistance(data)
+      const normalizedAssistance = normalizeAssistance(data)
+      const normalized = {
+        ...normalizedAssistance,
+        productName: normalizedAssistance.productName || getSaleItemLabel(selectedItem),
+      }
       setAssistances((prev) => [normalized, ...prev.filter((item) => item.id !== normalized.id)])
       setAssistanceForm(createAssistanceFormState(sales))
     } catch (error) {
@@ -4507,7 +4517,7 @@ const focusInventoryPanel = (productId?: string) => {
           ...stockMovements
             .filter((movement) => {
               const product = stockItems.find((item) => item.id === movement.productId)
-              const blob = `${product?.name ?? ''} ${movement.note}`.toLowerCase()
+              const blob = `${product?.name ?? movement.productName ?? ''} ${movement.note}`.toLowerCase()
               return blob.includes(normalizedExplore)
             })
             .map((movement) => {
@@ -4515,7 +4525,7 @@ const focusInventoryPanel = (productId?: string) => {
               return {
                 id: movement.id,
                 type: movement.type === 'entrada' ? 'Entrada' : 'Saída',
-                title: product?.name ?? 'Produto removido',
+                title: product?.name ?? movement.productName ?? 'Produto removido',
                 subtitle: `${movement.amount} unidades · ${new Date(movement.createdAt).toLocaleDateString('pt-BR')}`,
                 action: () => setStockExploreTerm(''),
               }
@@ -4688,7 +4698,9 @@ const focusInventoryPanel = (productId?: string) => {
             <div className="stock-detail-panel">
               {(() => {
                 const product =
-                  stockItems.find((item) => item.id === expandedStockId) ?? stockItems[0]
+                  stockItems.find((item) => item.id === expandedStockId) ??
+                  stockPageItems.find((item) => item.id === expandedStockId) ??
+                  stockItems[0]
                 if (!product) return null
                 const totalUnits = product.quantity + product.reserved
                 const reservedPercent = totalUnits ? Math.round((product.reserved / totalUnits) * 100) : 0
@@ -5076,21 +5088,22 @@ const focusInventoryPanel = (productId?: string) => {
             {!stockMovementsLoading &&
               !stockMovementsError &&
               filteredMovements.map((movement) => {
-              const product = stockItems.find((item) => item.id === movement.productId)
-              return (
-                <div className={`movement-card ${movement.type}`} key={movement.id}>
-                  <div>
-                    <p className="sale-id">
-                      {movement.type === 'entrada' ? 'Entrada' : 'Saída'} · {product?.name ?? 'Produto removido'}
-                    </p>
-                    <p className="sale-meta">
-                      {movement.amount} unidades · {new Date(movement.createdAt).toLocaleString('pt-BR')}
-                    </p>
-                    {movement.note && <p className="sale-note">{movement.note}</p>}
+                const product = stockItems.find((item) => item.id === movement.productId)
+                const productName = product?.name ?? movement.productName ?? 'Produto removido'
+                return (
+                  <div className={`movement-card ${movement.type}`} key={movement.id}>
+                    <div>
+                      <p className="sale-id">
+                        {movement.type === 'entrada' ? 'Entrada' : 'Saída'} · {productName}
+                      </p>
+                      <p className="sale-meta">
+                        {movement.amount} unidades · {new Date(movement.createdAt).toLocaleString('pt-BR')}
+                      </p>
+                      {movement.note && <p className="sale-note">{movement.note}</p>}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         </section>
       </div>
@@ -6420,9 +6433,7 @@ const focusInventoryPanel = (productId?: string) => {
                             allowNegative={false}
                             inputMode="decimal"
                             placeholder="0,00"
-                            disabled={!isAdmin && !isCustomItem}
                             onValueChange={({ floatValue }) => {
-                              if (!isAdmin && !isCustomItem) return
                               updateSaleItemRow(index, {
                                 unitPrice: floatValue ?? 0,
                               })
