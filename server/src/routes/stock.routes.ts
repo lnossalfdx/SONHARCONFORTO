@@ -41,6 +41,12 @@ const PRODUCT_SELECT = 'id, name, sku, quantity, reserved, price, factoryCost, i
 
 router.get('/', authMiddleware, async (request, response) => {
   const { search, filter, minPrice, maxPrice, paginated } = request.query
+  const ids = typeof request.query.ids === 'string'
+    ? request.query.ids
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : []
   const normalizedSearch = typeof search === 'string' ? search.trim() : ''
   const limit = Number(request.query.limit)
   const offset = Number(request.query.offset)
@@ -52,6 +58,9 @@ router.get('/', authMiddleware, async (request, response) => {
     .from('products')
     .select(PRODUCT_SELECT, selectOptions)
     .order('createdAt', { ascending: false })
+  if (ids.length) {
+    query = query.in('id', ids)
+  }
   if (isPaginated) {
     query = query.range(safeOffset, safeOffset + safeLimit - 1)
   }

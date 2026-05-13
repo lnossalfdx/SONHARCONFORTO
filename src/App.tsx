@@ -643,14 +643,14 @@ const createSaleFormFromSale = (sale: Sale, stockItems: StockItem[]): SaleFormSt
     clientId: sale.clientId,
     items: sale.items.map((item) => {
       const referenceProduct = stockItems.find((stock) => stock.id === item.productId)
-      const isCustom = Boolean(item.isCustom || !item.productId)
+      const isCustom = !item.productId
       return {
         productId: item.productId ?? '',
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         discount: item.discount,
         searchName: isCustom ? item.customName ?? item.productName ?? '' : referenceProduct?.name ?? item.productName ?? '',
-        customName: item.customName ?? item.productName ?? '',
+        customName: isCustom ? item.customName ?? item.productName ?? '' : '',
         isCustom,
       }
     }),
@@ -1335,6 +1335,28 @@ useEffect(() => {
       setStockPageLoading(false)
     }
   }, [authToken, stockSearch, stockFilter, stockMinValue, stockMaxValue, stockPage])
+
+  const fetchStockByIdsFromApi = useCallback(async (productIds: string[]): Promise<StockItem[]> => {
+    if (!authToken) return []
+    const uniqueIds = [...new Set(productIds.filter(Boolean))]
+    if (!uniqueIds.length) return []
+    try {
+      const params = new URLSearchParams()
+      params.set('ids', uniqueIds.join(','))
+      const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) {
+        throw new Error('Não foi possível carregar produtos do pedido.')
+      }
+      const payload = await response.json()
+      const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
+      return data.map((item: any) => normalizeStockItem(item))
+    } catch (error) {
+      console.error(error)
+      return []
+    }
+  }, [authToken])
 
   const fetchStockMovementsFromApi = useCallback(async () => {
     if (!authToken) return
@@ -2668,6 +2690,20 @@ const focusInventoryPanel = (productId?: string) => {
     }
   }
 
+  const ensureStockItemsByIds = async (productIds: string[], baseStockItems = stockItems) => {
+    const uniqueIds = [...new Set(productIds.filter(Boolean))]
+    const missingIds = uniqueIds.filter((productId) => !baseStockItems.some((stock) => stock.id === productId))
+    if (!missingIds.length) return baseStockItems
+    const fetchedItems = await fetchStockByIdsFromApi(missingIds)
+    if (!fetchedItems.length) return baseStockItems
+    const merged = [...baseStockItems, ...fetchedItems].reduce<StockItem[]>((acc, stock) => {
+      if (!acc.some((item) => item.id === stock.id)) acc.push(stock)
+      return acc
+    }, [])
+    setStockItems(merged)
+    return merged
+  }
+
   const openSaleModal = async (saleToEdit?: Sale) => {
     if (saleToEdit) {
       if (!isAdmin) return
@@ -2697,7 +2733,9 @@ const focusInventoryPanel = (productId?: string) => {
       }
       setEditingSale(saleToEdit)
       setSaleDraftId(saleToEdit.id)
-      setSaleForm(createSaleFormFromSale(saleToEdit, resolvedStockItems))
+      const saleProductIds = saleToEdit.items.map((item) => item.productId).filter(Boolean)
+      const stockItemsWithSaleProducts = await ensureStockItemsByIds(saleProductIds, resolvedStockItems)
+      setSaleForm(createSaleFormFromSale(saleToEdit, stockItemsWithSaleProducts))
       const clientMatch = resolvedClients.find((clientItem) => clientItem.id === saleToEdit.clientId)
       setSaleClientSearch(clientMatch?.name ?? saleToEdit.clientName ?? '')
     } else {
@@ -2855,6 +2893,10 @@ const focusInventoryPanel = (productId?: string) => {
           discount: number
         }
     const saleItems: SaleItemPayload[] = []
+    const formProductIds = saleForm.items
+      .filter((item) => !item.isCustom && item.productId)
+      .map((item) => item.productId)
+    const validationStockItems = await ensureStockItemsByIds(formProductIds)
     for (const item of saleForm.items) {
       if (!item.quantity || item.quantity <= 0) {
         setSaleModalError('Itens inválidos. Verifique as quantidades.')
@@ -2879,7 +2921,7 @@ const focusInventoryPanel = (productId?: string) => {
         })
         continue
       }
-      const product = stockItems.find((stockItem) => stockItem.id === item.productId)
+      const product = validationStockItems.find((stockItem) => stockItem.id === item.productId)
       if (!product) {
         setSaleModalError('Produto inválido. Atualize o estoque antes de vender.')
         return
@@ -2899,7 +2941,7 @@ const focusInventoryPanel = (productId?: string) => {
     }
 
     for (const [productId, qty] of Object.entries(quantityCheck)) {
-      const product = stockItems.find((stockItem) => stockItem.id === productId)
+      const product = validationStockItems.find((stockItem) => stockItem.id === productId)
       if (!product) {
         setSaleModalError('Produto inválido. Atualize o estoque antes de vender.')
         return
