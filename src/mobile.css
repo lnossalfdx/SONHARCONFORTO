@@ -428,6 +428,33 @@
     gap: 10px;
   }
 
+  .sales-panel-head,
+  .sales-head-actions {
+    align-items: stretch;
+  }
+
+  .sales-command-bar,
+  .sales-mini-metrics,
+  .sales-filter-grid,
+  .date-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-status-tabs,
+  .sales-quick-periods {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .sale-card-actions {
+    width: 100%;
+    min-width: 0;
+    border-left: 0;
+    padding-left: 0;
+    align-items: stretch;
+  }
+
   .finance-command-head,
   .finance-command-head .section-actions {
     align-items: stretch;

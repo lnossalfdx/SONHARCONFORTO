@@ -963,13 +963,15 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     if (authToken) headers.Authorization = `Bearer ${authToken}`
     return headers
   }
+  const activeProductQuery =
+    activeProductSearch !== null ? saleForm.items[activeProductSearch]?.searchName?.trim() ?? '' : ''
 
   useEffect(() => {
     if (!authToken || !saleModalOpen || activeProductSearch === null) return
-    const currentItem = saleForm.items[activeProductSearch]
-    const query = currentItem?.searchName?.trim() ?? ''
+    const productSearchIndex = activeProductSearch
+    const query = activeProductQuery
     if (query.length < 2) {
-      setProductSearchResults((prev) => ({ ...prev, [activeProductSearch]: [] }))
+      setProductSearchResults((prev) => ({ ...prev, [productSearchIndex]: [] }))
       setProductSearchLoading(false)
       return
     }
@@ -996,7 +998,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
           if (productSearchRequestRef.current !== requestId) return
           const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
           const normalized = data.map((item: any) => normalizeStockItem(item))
-          setProductSearchResults((prev) => ({ ...prev, [activeProductSearch]: normalized }))
+          setProductSearchResults((prev) => ({ ...prev, [productSearchIndex]: normalized }))
         })
         .catch((error) => console.error(error))
         .finally(() => {
@@ -1007,7 +1009,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     }, 180)
 
     return () => window.clearTimeout(timeoutId)
-  }, [authToken, saleModalOpen, activeProductSearch, saleForm.items])
+  }, [authToken, saleModalOpen, activeProductSearch, activeProductQuery])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
@@ -4427,8 +4429,51 @@ const focusInventoryPanel = (productId?: string) => {
       salesPageItems.length > ITEMS_PER_PAGE
         ? salesPageItems.slice((salesPage - 1) * ITEMS_PER_PAGE, salesPage * ITEMS_PER_PAGE)
         : salesPageItems
+    const today = new Date()
+    const todayIso = formatDateInput(today)
+    const currentMonthStart = formatDateInput(new Date(today.getFullYear(), today.getMonth(), 1))
+    const currentMonthEnd = formatDateInput(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+    const clearSaleFilters = () => {
+      setSaleSearch('')
+      setSaleFilter('all')
+      setSaleDateStart('')
+      setSaleDateEnd('')
+      setSalePaymentFilter('all')
+      setSaleMinValue('')
+    }
+    const setSalePeriod = (period: 'today' | 'month' | 'clear') => {
+      if (period === 'today') {
+        setSaleDateStart(todayIso)
+        setSaleDateEnd(todayIso)
+        return
+      }
+      if (period === 'month') {
+        setSaleDateStart(currentMonthStart)
+        setSaleDateEnd(currentMonthEnd)
+        return
+      }
+      setSaleDateStart('')
+      setSaleDateEnd('')
+    }
+    const hasActiveSaleFilters = Boolean(
+      saleSearch ||
+        saleFilter !== 'all' ||
+        saleDateStart ||
+        saleDateEnd ||
+        salePaymentFilter !== 'all' ||
+        saleMinValue,
+    )
+    const visibleSalesTotal = pagedSales.reduce((sum, sale) => sum + sale.value, 0)
+    const visiblePendingSales = pagedSales.filter((sale) => sale.status === 'pendente').length
+    const visibleDeliveredSales = pagedSales.filter((sale) => sale.status === 'entregue').length
+    const saleStatusFilters = [
+      { id: 'all', label: 'Todas', count: salesPageTotal },
+      { id: 'pendente', label: 'Pendentes', count: sales.filter((sale) => sale.status === 'pendente').length },
+      { id: 'entregue', label: 'Entregues', count: sales.filter((sale) => sale.status === 'entregue').length },
+      { id: 'cancelada', label: 'Canceladas', count: sales.filter((sale) => sale.status === 'cancelada').length },
+    ] as const
     return (
-      <div className="page-stack">
+      <div className="page-stack sales-page">
         {lastReceiptSale && (
           <div className="panel receipt-toast">
             <div>
@@ -4453,15 +4498,21 @@ const focusInventoryPanel = (productId?: string) => {
             </div>
           </div>
         )}
-        <section className="panel">
-          <div className="section-head">
+        <section className="panel sales-panel">
+          <div className="section-head sales-panel-head">
             <div>
               <p className="eyebrow">Sleep Lab</p>
-              <h2>Vendas recentes</h2>
+              <h2>Pedidos e vendas</h2>
+              <p className="hero-sub">Encontre pedidos, acompanhe aprovações e gere notas em poucos cliques.</p>
             </div>
-            <div className="quick-actions">
+            <div className="quick-actions sales-head-actions">
+              {hasActiveSaleFilters && (
+                <button className="ghost compact" type="button" onClick={clearSaleFilters}>
+                  Limpar filtros
+                </button>
+              )}
               <button
-                className="ghost"
+                className="primary"
                 type="button"
                 onClick={() => void openSaleModal()}
                 disabled={!canRegisterSales}
@@ -4470,64 +4521,102 @@ const focusInventoryPanel = (productId?: string) => {
               </button>
             </div>
           </div>
-          <div className="sales-search">
-            <input
-              placeholder="Buscar por cliente, venda (#VEN), produto ou SKU"
-              value={saleSearch}
-              onChange={(event) => setSaleSearch(event.target.value)}
-            />
-            <span className="chip ghost">{salesPageTotal} encontrados</span>
+
+          <div className="sales-command-bar">
+            <div className="sales-search-card">
+              <span>Buscar pedido</span>
+              <input
+                placeholder="Cliente, #VEN, produto, medida ou SKU"
+                value={saleSearch}
+                onChange={(event) => setSaleSearch(event.target.value)}
+              />
+            </div>
+            <div className="sales-mini-metrics">
+              <div>
+                <span>Encontrados</span>
+                <strong>{salesPageTotal}</strong>
+              </div>
+              <div>
+                <span>Valor nesta página</span>
+                <strong>{formatCurrency(visibleSalesTotal)}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>{visibleDeliveredSales} entregues · {visiblePendingSales} pendentes</strong>
+              </div>
+            </div>
           </div>
-          <div className="filter-pills">
-            {(
-              [
-                { id: 'all', label: 'Todas' },
-                { id: 'pendente', label: 'Pendentes' },
-                { id: 'entregue', label: 'Entregues' },
-                { id: 'cancelada', label: 'Canceladas' },
-              ] as const
-            ).map((filter) => (
+
+          <div className="sales-filter-shell">
+            <div className="sales-status-tabs">
+              {saleStatusFilters.map((filter) => (
+                <button
+                  type="button"
+                  key={filter.id}
+                  className={saleFilter === filter.id ? 'active' : ''}
+                  onClick={() => setSaleFilter(filter.id)}
+                >
+                  <span>{filter.label}</span>
+                  <strong>{filter.count}</strong>
+                </button>
+              ))}
+            </div>
+            <div className="sales-quick-periods">
               <button
                 type="button"
-                key={filter.id}
-                className={saleFilter === filter.id ? 'active' : ''}
-                onClick={() => setSaleFilter(filter.id)}
+                className={saleDateStart === todayIso && saleDateEnd === todayIso ? 'active' : ''}
+                onClick={() => setSalePeriod('today')}
               >
-                {filter.label}
+                Hoje
               </button>
-            ))}
+              <button
+                type="button"
+                className={saleDateStart === currentMonthStart && saleDateEnd === currentMonthEnd ? 'active' : ''}
+                onClick={() => setSalePeriod('month')}
+              >
+                Este mês
+              </button>
+              <button
+                type="button"
+                className={!saleDateStart && !saleDateEnd ? 'active' : ''}
+                onClick={() => setSalePeriod('clear')}
+              >
+                Todo período
+              </button>
+            </div>
+            <div className="sales-filter-grid">
+              <label>
+                Período
+                <div className="date-pair">
+                  <input type="date" value={saleDateStart} onChange={(event) => setSaleDateStart(event.target.value)} />
+                  <input type="date" value={saleDateEnd} onChange={(event) => setSaleDateEnd(event.target.value)} />
+                </div>
+              </label>
+              <label>
+                Pagamento
+                <select value={salePaymentFilter} onChange={(event) => setSalePaymentFilter(event.target.value as typeof salePaymentFilter)}>
+                  <option value="all">Todos os pagamentos</option>
+                  {paymentMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Valor mínimo
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={saleMinValue}
+                  onChange={(event) => setSaleMinValue(event.target.value)}
+                  placeholder="R$ 0,00"
+                />
+              </label>
+            </div>
           </div>
-          <div className="filter-row">
-            <label>
-              Desde
-              <input type="date" value={saleDateStart} onChange={(event) => setSaleDateStart(event.target.value)} />
-            </label>
-            <label>
-              Até
-              <input type="date" value={saleDateEnd} onChange={(event) => setSaleDateEnd(event.target.value)} />
-            </label>
-            <label>
-              Pagamento
-              <select value={salePaymentFilter} onChange={(event) => setSalePaymentFilter(event.target.value as typeof salePaymentFilter)}>
-                <option value="all">Todos</option>
-                {paymentMethods.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Valor mínimo (R$)
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={saleMinValue}
-                onChange={(event) => setSaleMinValue(event.target.value)}
-              />
-            </label>
-          </div>
+
           <div className="sales-list">
             {salesPageLoading && <p className="empty-state">Carregando vendas...</p>}
             {!salesPageLoading && salesPageError && <p className="empty-state">{salesPageError}</p>}
@@ -4564,21 +4653,21 @@ const focusInventoryPanel = (productId?: string) => {
                 const weeklyRemaining = Math.max(0, weeklyTotal - weeklyPaid)
                 return (
                   <div className={`sale-card ${sale.status}`} key={sale.id}>
-                    <div>
+                    <div className="sale-card-main">
                       <div className="sale-card-headline">
-                        <p className="sale-id">
-                          #{sale.id} · {client?.name ?? sale.clientName ?? 'Cliente removido'}
-                        </p>
+                        <div>
+                          <p className="sale-id">#{sale.id}</p>
+                          <h3>{client?.name ?? sale.clientName ?? 'Cliente removido'}</h3>
+                        </div>
                         <span className={`chip ${statusTone}`}>{statusLabel}</span>
                       </div>
-                      <p className="sale-meta">
-                        {totalUnits} itens · {formatCurrency(sale.value)}
-                      </p>
-                      {sale.deliveryDate && (
-                        <p className="sale-meta mini">
-                          Entrega prevista {new Date(sale.deliveryDate).toLocaleDateString('pt-BR')}
-                        </p>
-                      )}
+                      <div className="sale-summary-row">
+                        <span>{totalUnits} itens</span>
+                        <strong>{formatCurrency(sale.value)}</strong>
+                        {sale.deliveryDate && (
+                          <span>Entrega {new Date(sale.deliveryDate).toLocaleDateString('pt-BR')}</span>
+                        )}
+                      </div>
                       <div className="sale-items-list">
                         {sale.items.map((item, idx) => {
                           const productInfo = stockItems.find((stock) => stock.id === item.productId)
