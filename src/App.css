@@ -76,7 +76,7 @@ body {
 
 .sidebar {
   position: sticky;
-  top: 24px;
+  top: 16px;
   align-self: start;
   background: var(--surface);
   border: 1px solid #d7e6f5;
@@ -90,7 +90,9 @@ body {
   gap: 12px;
   transition: width 0.25s ease, padding 0.2s ease, box-shadow 0.2s ease;
   overflow: hidden;
-  min-height: calc(100vh - 56px);
+  height: calc(100dvh - 32px);
+  min-height: 0;
+  max-height: calc(100dvh - 32px);
   width: 280px;
 }
 
@@ -104,6 +106,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
 .brand-mark {
@@ -136,6 +139,21 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 142, 215, 0.28) transparent;
+}
+
+.nav::-webkit-scrollbar {
+  width: 5px;
+}
+
+.nav::-webkit-scrollbar-thumb {
+  background: rgba(0, 142, 215, 0.24);
+  border-radius: 999px;
 }
 
 .nav-item {
@@ -211,6 +229,7 @@ body {
   justify-content: center;
   padding: 16px 0;
   margin-top: auto;
+  flex: 0 0 auto;
 }
 
 .sidebar.collapsed .nav-label,
@@ -4168,12 +4187,14 @@ textarea:focus {
 
 @media (max-width: 1080px) {
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto 1fr;
   }
 
   .sidebar {
-    position: relative;
-    top: 0;
+    position: sticky;
+    top: 12px;
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
   }
 
   .content {
