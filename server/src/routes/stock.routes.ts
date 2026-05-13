@@ -167,22 +167,35 @@ router.post('/:id/movements', authMiddleware, roleGuard('admin'), async (request
 })
 
 router.get('/movements', authMiddleware, async (request, response) => {
-  const { type } = request.query
+  const { type, paginated } = request.query
+  const start = typeof request.query.start === 'string' ? request.query.start : ''
+  const end = typeof request.query.end === 'string' ? request.query.end : ''
   const limit = Number(request.query.limit)
   const offset = Number(request.query.offset)
   const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 200
   const safeOffset = Number.isFinite(offset) && offset >= 0 ? offset : 0
+  const isPaginated = paginated === '1'
+  const selectOptions = isPaginated ? { count: 'exact' as const } : undefined
   let query = supabase
     .from('stock_movements')
-    .select('id, productId, type, amount, note, createdAt, product:productId(id, name, sku)')
+    .select('id, productId, type, amount, note, createdAt, product:productId(id, name, sku)', selectOptions)
     .order('createdAt', { ascending: false })
-    .range(safeOffset, safeOffset + safeLimit - 1)
   if (type === 'entrada' || type === 'saida') {
     query = query.eq('type', type)
   }
-  const { data: movements, error } = await query
+  if (start) {
+    query = query.gte('createdAt', start)
+  }
+  if (end) {
+    query = query.lte('createdAt', end)
+  }
+  query = query.range(safeOffset, safeOffset + safeLimit - 1)
+  const { data: movements, error, count } = await query
   if (error) {
     return response.status(500).json({ message: error.message })
+  }
+  if (isPaginated) {
+    return response.json({ data: movements ?? [], total: count ?? 0 })
   }
   return response.json(movements ?? [])
 })

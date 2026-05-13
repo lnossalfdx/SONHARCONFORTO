@@ -273,6 +273,15 @@ const normalizeSale = (sale: any): Sale => {
 const DEFAULT_PRODUCT_IMAGE =
   'https://images.unsplash.com/photo-1616594039964-42d379c6810d?auto=format&fit=crop&w=400&q=60'
 
+const COMPANY_INFO = {
+  brand: 'SONHAR CONFORTO',
+  legalName: 'SONHAR CONFORTO LTDA',
+  cnpj: '66.678.373/0001-24',
+  address: 'R. Heitor Alves Guimarães, 819 - Centro, Araucária - PR, 83702-130',
+  phone: '(41) 8743-1717',
+  email: 'contato.sonharconforto@gmail.com',
+}
+
 const RECEIPT_TERMS = [
   'Garantia de 1 ano, válida somente com este pedido de venda e etiqueta intacta.',
   'Qualquer problema deve ser comunicado diretamente à loja.',
@@ -375,8 +384,6 @@ const SUMMARY_CACHE_KEY_PREFIX = 'sonhar:cache:summary'
 const STOCK_CACHE_TTL_SECONDS = 180
 const SUMMARY_CACHE_TTL_SECONDS = 180
 const ITEMS_PER_PAGE = 10
-const STOCK_PAGE_SIZE = 200
-const STOCK_MOVEMENTS_PAGE_SIZE = 500
 const pageIds: PageId[] = ['dashboard', 'clientes', 'sleepLab', 'estoque', 'entregas', 'assistencias', 'financeiro']
 
 type CacheEntry<T> = { ts: number; data: T }
@@ -708,7 +715,14 @@ function App() {
   const [inventoryPanelOpen, setInventoryPanelOpen] = useState(false)
   const [inventorySubmitLoading, setInventorySubmitLoading] = useState(false)
   const [inventorySubmitError, setInventorySubmitError] = useState<string | null>(null)
-  const needsStockItems = viewingStockPage
+  const [stockExploreTerm, setStockExploreTerm] = useState('')
+  const needsStockItems =
+    viewingDashboard ||
+    viewingSleepLab ||
+    viewingAssistances ||
+    saleModalOpen ||
+    inventoryPanelOpen ||
+    stockExploreTerm.trim().length > 0
   const needsStockMovements = viewingStockPage
   const emptyClientForm = {
     name: '',
@@ -798,12 +812,13 @@ const [expenseForm, setExpenseForm] = useState({
 })
 const [expenseSubmitLoading, setExpenseSubmitLoading] = useState(false)
 const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null)
-  const [stockExploreTerm, setStockExploreTerm] = useState('')
   const [globalSearch, setGlobalSearch] = useState('')
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'pendente' | 'entregue'>('all')
   const [movementTypeFilter, setMovementTypeFilter] = useState<'all' | 'entrada' | 'saida'>('all')
   const [movementDateStart, setMovementDateStart] = useState('')
   const [movementDateEnd, setMovementDateEnd] = useState('')
+  const [stockMovementsPage, setStockMovementsPage] = useState(1)
+  const [stockMovementsTotal, setStockMovementsTotal] = useState(0)
   const [deliveryMonthOffset, setDeliveryMonthOffset] = useState(0)
   const [searchFocused, setSearchFocused] = useState(false)
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
@@ -875,7 +890,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
   const needsMonthlyGoal = viewingDashboard || viewingFinance
   const needsFinanceData = viewingFinance
   const stockCacheKey = useMemo(
-    () => `${STOCK_CACHE_KEY_PREFIX}:${sessionUserId ?? 'unknown'}:${currentUser?.role ?? 'unknown'}`,
+    () => `${STOCK_CACHE_KEY_PREFIX}:${sessionUserId ?? 'unknown'}:${currentUser?.role ?? 'unknown'}:page-1:${ITEMS_PER_PAGE}`,
     [sessionUserId, currentUser?.role],
   )
   const financeSummaryCacheKey = useMemo(() => {
@@ -1152,19 +1167,31 @@ useEffect(() => {
   setStockPage(1)
 }, [stockSearch, stockFilter, stockMinValue, stockMaxValue])
 
+useEffect(() => {
+  setStockMovementsPage(1)
+}, [movementTypeFilter, movementDateStart, movementDateEnd])
+
   const fetchStockFromApi = useCallback(async (cacheKey?: string): Promise<StockItem[]> => {
     if (!authToken) return []
     setStockLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/stock?limit=${STOCK_PAGE_SIZE}`, {
+      const params = new URLSearchParams()
+      params.set('paginated', '1')
+      params.set('limit', ITEMS_PER_PAGE.toString())
+      params.set('offset', '0')
+      const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
         throw new Error('Não foi possível carregar o estoque.')
       }
-      const data = await response.json()
+      const payload = await response.json()
+      const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
       const normalized = Array.isArray(data) ? data.map((item: any) => normalizeStockItem(item)) : []
+      const total = Number(payload?.total)
       setStockItems(normalized)
+      setStockPageItems((prev) => (prev.length ? prev : normalized))
+      setStockPageTotal(Number.isFinite(total) ? total : normalized.length)
       if (cacheKey) {
         writeSessionCache(cacheKey, normalized)
       }
@@ -1232,23 +1259,34 @@ useEffect(() => {
     setStockMovementsLoading(true)
     setStockMovementsError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/stock/movements?limit=${STOCK_MOVEMENTS_PAGE_SIZE}`, {
+      const params = new URLSearchParams()
+      params.set('paginated', '1')
+      params.set('limit', ITEMS_PER_PAGE.toString())
+      params.set('offset', ((stockMovementsPage - 1) * ITEMS_PER_PAGE).toString())
+      if (movementTypeFilter !== 'all') params.set('type', movementTypeFilter)
+      if (movementDateStart) params.set('start', getLocalStartOfDayIso(movementDateStart))
+      if (movementDateEnd) params.set('end', getLocalEndOfDayIso(movementDateEnd))
+      const response = await fetch(`${API_BASE_URL}/stock/movements?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
         throw new Error('Não foi possível carregar os movimentos.')
       }
-      const data = await response.json()
+      const payload = await response.json()
+      const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
       const normalized = Array.isArray(data) ? data.map((movement: any) => normalizeMovement(movement)) : []
       setStockMovements(normalized)
+      const total = Number(payload?.total)
+      setStockMovementsTotal(Number.isFinite(total) ? total : normalized.length)
     } catch (error) {
       console.error(error)
       setStockMovementsError(error instanceof Error ? error.message : 'Falha ao carregar movimentos.')
       setStockMovements([])
+      setStockMovementsTotal(0)
     } finally {
       setStockMovementsLoading(false)
     }
-  }, [authToken])
+  }, [authToken, stockMovementsPage, movementTypeFilter, movementDateStart, movementDateEnd])
 
   useEffect(() => {
     if (!authToken) {
@@ -1265,7 +1303,7 @@ useEffect(() => {
       }
       return
     }
-    const fetchKey = `${stockCacheKey}:${STOCK_PAGE_SIZE}`
+    const fetchKey = `${stockCacheKey}:page-1:${ITEMS_PER_PAGE}`
     if (stockFetchKeyRef.current === fetchKey) return
     stockFetchKeyRef.current = fetchKey
     const cached = readSessionCache<StockItem[]>(stockCacheKey, STOCK_CACHE_TTL_SECONDS)
@@ -1280,6 +1318,7 @@ useEffect(() => {
   useEffect(() => {
     if (!authToken) {
       setStockMovements([])
+      setStockMovementsTotal(0)
       setStockMovementsError(null)
       stockMovementsFetchKeyRef.current = null
       return
@@ -1288,11 +1327,26 @@ useEffect(() => {
       stockMovementsFetchKeyRef.current = null
       return
     }
-    const fetchKey = `${authToken}:${STOCK_MOVEMENTS_PAGE_SIZE}`
+    const fetchKey = [
+      authToken,
+      stockMovementsPage,
+      movementTypeFilter,
+      movementDateStart,
+      movementDateEnd,
+      ITEMS_PER_PAGE,
+    ].join(':')
     if (stockMovementsFetchKeyRef.current === fetchKey) return
     stockMovementsFetchKeyRef.current = fetchKey
     fetchStockMovementsFromApi()
-  }, [authToken, needsStockMovements, fetchStockMovementsFromApi])
+  }, [
+    authToken,
+    needsStockMovements,
+    stockMovementsPage,
+    movementTypeFilter,
+    movementDateStart,
+    movementDateEnd,
+    fetchStockMovementsFromApi,
+  ])
 
   const fetchSalesFromApi = useCallback(async () => {
     if (!authToken) return
@@ -3214,9 +3268,6 @@ const focusInventoryPanel = (productId?: string) => {
       expectedDate: assistance.expectedDate ? assistance.expectedDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
       photos: assistance.photos,
     })
-    requestAnimationFrame(() => {
-      assistanceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
   }
 
   const handleSaveMonthlyGoal = async (event: FormEvent<HTMLFormElement>) => {
@@ -3312,6 +3363,7 @@ const focusInventoryPanel = (productId?: string) => {
       )
       setAssistanceModal((prev) => (prev?.id === normalized.id ? normalized : prev))
       setEditingAssistance(null)
+      setAssistanceSaleSearchFocused(false)
       const nextForm = createAssistanceFormState(sales)
       setAssistanceForm(nextForm)
       const nextSale = sales.find((sale) => (sale.backendId ?? sale.id) === nextForm.saleId)
@@ -4072,10 +4124,10 @@ const focusInventoryPanel = (productId?: string) => {
       <section className="receipt-copy" data-copy={copyLabel} key={copyLabel}>
         <header className="receipt-copy-head">
           <div className="receipt-company">
-            <p className="receipt-brand">SONHAR CONFORTO</p>
-            <p>CRM do Sono · CNPJ 07.860.624/0001-28</p>
-            <p>R. Heitor Alves Guimarães, 819 - Centro, Araucária - PR, 83702-130</p>
-            <p>(41) 99899-0952 · contato@sonharconforto.com</p>
+            <p className="receipt-brand">{COMPANY_INFO.brand}</p>
+            <p>{COMPANY_INFO.legalName} · CNPJ {COMPANY_INFO.cnpj}</p>
+            <p>{COMPANY_INFO.address}</p>
+            <p>{COMPANY_INFO.phone} · {COMPANY_INFO.email}</p>
           </div>
           <div className="receipt-head-meta">
             <p>
@@ -4614,14 +4666,12 @@ const focusInventoryPanel = (productId?: string) => {
   }
 
   const renderStock = () => {
-    const pagedStock =
-      stockPageItems.length > ITEMS_PER_PAGE
-        ? stockPageItems.slice((stockPage - 1) * ITEMS_PER_PAGE, stockPage * ITEMS_PER_PAGE)
-        : stockPageItems
-    const totalAvailable = stockItems.reduce((sum, item) => sum + item.quantity, 0)
-    const totalReserved = stockItems.reduce((sum, item) => sum + item.reserved, 0)
-    const totalStockValue = stockItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
-    const lowStock = stockItems.filter((item) => item.quantity <= 3).length
+    const pagedStock = stockPageItems
+    const stockSummarySource = stockItems.length ? stockItems : stockPageItems
+    const totalAvailable = stockSummarySource.reduce((sum, item) => sum + item.quantity, 0)
+    const totalReserved = stockSummarySource.reduce((sum, item) => sum + item.reserved, 0)
+    const totalStockValue = stockSummarySource.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const lowStock = stockSummarySource.filter((item) => item.quantity <= 3).length
     const selectedInventoryProduct = stockItems.find((item) => item.id === inventoryForm.productId)
     const normalizedExplore = stockExploreTerm.trim().toLowerCase()
     const stockSearchResults = normalizedExplore
@@ -4655,13 +4705,6 @@ const focusInventoryPanel = (productId?: string) => {
       : []
 
     const filteredMovements = stockMovements
-      .filter((movement) => (movementTypeFilter === 'all' ? true : movement.type === movementTypeFilter))
-      .filter((movement) => {
-        const movementDate = movement.createdAt.slice(0, 10)
-        if (movementDateStart && movementDate < movementDateStart) return false
-        if (movementDateEnd && movementDate > movementDateEnd) return false
-        return true
-      })
 
     return (
       <div className="page-stack stock-page">
@@ -4717,7 +4760,7 @@ const focusInventoryPanel = (productId?: string) => {
               <button type="button" className="ghost" onClick={openCreateClientModal}>
                 Cadastrar cliente
               </button>
-              <span className="chip ghost">{stockItems.length} SKUs</span>
+              <span className="chip ghost">{stockPageTotal} SKUs</span>
             </div>
           </div>
           <div className="stock-highlight-grid">
@@ -4734,7 +4777,7 @@ const focusInventoryPanel = (productId?: string) => {
             <div className="stock-highlight-card">
               <p>Capacidade</p>
               <strong>{totalAvailable + totalReserved} unidades</strong>
-              <span>{stockMovements.length} movimentos registrados</span>
+              <span>{stockMovementsTotal} movimentos registrados</span>
             </div>
           </div>
           <div className="stock-search-row">
@@ -5172,7 +5215,7 @@ const focusInventoryPanel = (productId?: string) => {
               <p className="eyebrow">Estoque</p>
               <h2>Histórico de movimentos</h2>
             </div>
-            <span className="chip ghost">{filteredMovements.length} registros</span>
+            <span className="chip ghost">{stockMovementsTotal} registros</span>
           </div>
           <div className="filter-row">
             <label>
@@ -5226,6 +5269,9 @@ const focusInventoryPanel = (productId?: string) => {
                 )
               })}
           </div>
+          {!stockMovementsLoading &&
+            !stockMovementsError &&
+            renderPagination(stockMovementsTotal, stockMovementsPage, setStockMovementsPage)}
         </section>
       </div>
     );
@@ -5837,8 +5883,8 @@ const focusInventoryPanel = (productId?: string) => {
         <section className="panel assist-form" ref={assistanceFormRef}>
           <div className="section-head">
             <div>
-              <p className="eyebrow">{editingAssistance ? `Editando #${editingAssistance.code}` : 'Registrar assistência'}</p>
-              <h2>{editingAssistance ? 'Atualize os dados da assistência' : 'Conecte venda, produto e defeito relatado'}</h2>
+              <p className="eyebrow">Registrar assistência</p>
+              <h2>Conecte venda, produto e defeito relatado</h2>
             </div>
             <button
               className="ghost"
@@ -5846,7 +5892,7 @@ const focusInventoryPanel = (productId?: string) => {
               onClick={resetAssistanceForm}
               disabled={!canManageAssistances}
             >
-              {editingAssistance ? 'Cancelar edição' : 'Limpar formulário'}
+              Limpar formulário
             </button>
           </div>
           <form className="assist-form-grid" onSubmit={handleRegisterAssistance}>
@@ -5994,11 +6040,7 @@ const focusInventoryPanel = (productId?: string) => {
                   canSubmitAssistance ? 'Salvar assistência' : 'Selecione venda, produto e descreva o defeito'
                 }
               >
-                {assistanceSubmitLoading
-                  ? 'Salvando...'
-                  : editingAssistance
-                    ? 'Salvar edição'
-                    : 'Registrar assistência'}
+                {assistanceSubmitLoading ? 'Salvando...' : 'Registrar assistência'}
               </button>
             </div>
           </form>
@@ -7281,6 +7323,184 @@ const focusInventoryPanel = (productId?: string) => {
                   ))}
                 </div>
               </div>
+            </div>
+          )
+        })()}
+
+      {editingAssistance &&
+        (() => {
+          const selectedSale = sales.find((sale) => (sale.backendId ?? sale.id) === assistanceForm.saleId)
+          const productOptions = selectedSale
+            ? selectedSale.items.reduce<{ value: string; label: string }[]>((acc, item, index) => {
+                const value = getSaleItemKey(item, index)
+                if (!acc.some((existing) => existing.value === value)) {
+                  acc.push({ value, label: getSaleItemLabel(item) })
+                }
+                return acc
+              }, [])
+            : []
+          const selectedAssistanceItem = selectedSale?.items.find(
+            (item, index) => getSaleItemKey(item, index) === assistanceForm.productId,
+          )
+          const canSaveEdit =
+            Boolean(selectedSale) &&
+            Boolean(selectedAssistanceItem) &&
+            Boolean(assistanceForm.defectDescription.trim())
+          const selectAssistanceSale = (sale: Sale) => {
+            const nextSaleId = sale.backendId ?? sale.id
+            const nextProductId = sale.items[0] ? getSaleItemKey(sale.items[0], 0) : ''
+            setAssistanceSubmitError(null)
+            setAssistanceForm((prev) => ({
+              ...prev,
+              saleId: nextSaleId,
+              productId: nextProductId,
+            }))
+            setAssistanceSaleSearch(getAssistanceSaleLabel(sale))
+            setAssistanceSaleSearchFocused(false)
+          }
+
+          return (
+            <div className="modal-backdrop" onClick={resetAssistanceForm}>
+              <form className="modal assistance-edit-modal" onClick={(event) => event.stopPropagation()} onSubmit={handleRegisterAssistance}>
+                <div className="section-head">
+                  <div>
+                    <p className="eyebrow">Editar assistência #{editingAssistance.code}</p>
+                    <h2>Atualize atendimento, produto e retorno</h2>
+                  </div>
+                  <button type="button" className="text-button" onClick={resetAssistanceForm}>
+                    Fechar
+                  </button>
+                </div>
+                <div className="assist-form-grid">
+                  <div className="assist-form-main">
+                    <label>
+                      Venda vinculada
+                      <div className="assist-sale-search">
+                        <input
+                          value={assistanceSaleSearch}
+                          onFocus={() => setAssistanceSaleSearchFocused(true)}
+                          onBlur={() => {
+                            setTimeout(() => setAssistanceSaleSearchFocused(false), 150)
+                          }}
+                          onChange={(event) => {
+                            setAssistanceSaleSearch(event.target.value)
+                            setAssistanceSaleSearchFocused(true)
+                          }}
+                          placeholder="Pesquise por cliente, código da venda ou produto"
+                          autoComplete="off"
+                        />
+                        {assistanceSaleSearchFocused && (
+                          <div className="search-dropdown assist-sale-dropdown">
+                            {assistanceSaleOptions.length ? (
+                              assistanceSaleOptions.map((sale) => {
+                                const itemSummary = sale.items
+                                  .map((item) => item.productName ?? item.customName ?? item.searchName ?? '')
+                                  .filter(Boolean)
+                                  .slice(0, 2)
+                                  .join(' · ')
+                                return (
+                                  <button
+                                    type="button"
+                                    key={sale.backendId ?? sale.id}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => selectAssistanceSale(sale)}
+                                  >
+                                    <strong>{getAssistanceSaleLabel(sale)}</strong>
+                                    <span>{itemSummary || 'Venda sem descrição de itens'}</span>
+                                  </button>
+                                )
+                              })
+                            ) : (
+                              <p className="empty-state">Nenhuma venda encontrada.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                    <label>
+                      Produto reportado
+                      <select
+                        value={assistanceForm.productId}
+                        onChange={(event) => setAssistanceForm((prev) => ({ ...prev, productId: event.target.value }))}
+                        disabled={!productOptions.length}
+                      >
+                        {productOptions.map((product) => (
+                          <option value={product.value} key={product.value}>
+                            {product.label}
+                          </option>
+                        ))}
+                        {!productOptions.length && <option value="">Selecione uma venda com itens</option>}
+                      </select>
+                    </label>
+                    <label>
+                      Defeito relatado
+                      <textarea
+                        value={assistanceForm.defectDescription}
+                        onChange={(event) => {
+                          setAssistanceSubmitError(null)
+                          setAssistanceForm((prev) => ({ ...prev, defectDescription: event.target.value }))
+                        }}
+                        rows={4}
+                        minLength={5}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Retorno da fábrica
+                      <textarea
+                        value={assistanceForm.factoryResponse}
+                        onChange={(event) =>
+                          setAssistanceForm((prev) => ({ ...prev, factoryResponse: event.target.value }))
+                        }
+                        rows={3}
+                      />
+                    </label>
+                  </div>
+                  <aside className="assist-form-side">
+                    <label>
+                      Previsão de entrega/reparo
+                      <input
+                        type="date"
+                        value={assistanceForm.expectedDate}
+                        onChange={(event) => setAssistanceForm((prev) => ({ ...prev, expectedDate: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Fotos do defeito
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleAssistancePhotoUpload}
+                        disabled={assistanceForm.photos.length >= MAX_ASSISTANCE_PHOTOS}
+                      />
+                      <span className="field-note">
+                        {assistanceForm.photos.length}/{MAX_ASSISTANCE_PHOTOS} imagens anexadas
+                      </span>
+                    </label>
+                    <div className="photo-grid">
+                      {assistanceForm.photos.map((photo, index) => (
+                        <div className="photo-thumb" key={index}>
+                          <img src={photo} alt={`Foto ${index + 1}`} />
+                          <button type="button" className="ghost" onClick={() => handleRemoveAssistancePhoto(index)}>
+                            Remover
+                          </button>
+                        </div>
+                      ))}
+                      {assistanceForm.photos.length === 0 && <p className="field-note">Sem fotos anexadas.</p>}
+                    </div>
+                  </aside>
+                </div>
+                {assistanceSubmitError && <p className="field-note error">{assistanceSubmitError}</p>}
+                <div className="modal-actions">
+                  <button type="button" className="ghost" onClick={resetAssistanceForm} disabled={assistanceSubmitLoading}>
+                    Cancelar
+                  </button>
+                  <button type="submit" className="primary" disabled={!canSaveEdit || assistanceSubmitLoading}>
+                    {assistanceSubmitLoading ? 'Salvando...' : 'Salvar edição'}
+                  </button>
+                </div>
+              </form>
             </div>
           )
         })()}
