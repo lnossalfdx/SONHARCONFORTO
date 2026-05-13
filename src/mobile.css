@@ -334,23 +334,33 @@
   }
 
   .sale-item-row {
+    grid-template-columns: 1fr;
     padding: 14px;
     border-radius: 16px;
   }
 
   .sale-item-product {
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
   }
 
   .sale-item-product img {
-    width: 72px;
-    height: 72px;
+    width: 48px;
+    height: 48px;
   }
 
   .sale-item-fields {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .sale-details-panel,
+  .sale-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sale-modal-summary-line {
+    gap: 6px;
   }
 
   .sale-items-actions,
