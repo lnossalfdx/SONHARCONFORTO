@@ -5858,6 +5858,226 @@ textarea:focus {
   grid-column: span 1;
 }
 
+/* Dashboard premium */
+.dashboard-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.dashboard-grid .global-search,
+.hero-banner,
+.deep-metrics {
+  grid-column: 1 / -1;
+}
+
+.dashboard-grid .global-search-input input {
+  min-height: 52px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #d9e5f2;
+  box-shadow: 0 16px 40px rgba(20, 48, 84, 0.08);
+}
+
+.hero-banner {
+  min-height: 0;
+  padding: 24px;
+  grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.86fr);
+  gap: 22px;
+  align-items: stretch;
+  color: #0f1b31;
+  border: 1px solid #dce8f6;
+  border-radius: 26px;
+  background:
+    radial-gradient(620px 280px at 8% 0%, rgba(0, 142, 215, 0.16), transparent 70%),
+    radial-gradient(520px 260px at 94% 10%, rgba(36, 184, 91, 0.11), transparent 72%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(245, 250, 255, 0.96));
+  box-shadow: 0 22px 56px rgba(16, 48, 88, 0.12);
+}
+
+.hero-banner-left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hero-banner-left h1 {
+  max-width: 720px;
+  margin: 8px 0;
+  font-size: clamp(34px, 3.7vw, 54px);
+  line-height: 1.02;
+  letter-spacing: 0;
+}
+
+.hero-banner-left .hero-sub {
+  max-width: 640px;
+  color: #5b6a82;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.hero-banner .hero-actions {
+  margin-top: 2px;
+}
+
+.hero-highlight-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.hero-highlight {
+  min-height: 108px;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #dfe9f6;
+  box-shadow: 0 12px 28px rgba(20, 48, 84, 0.07);
+}
+
+.hero-highlight .fact-label,
+.hero-highlight .fact-detail {
+  color: #66758e;
+}
+
+.hero-highlight .fact-value {
+  color: #0e1a2f;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.hero-banner-right {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 12px;
+}
+
+.glass-card {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #dbe7f5;
+  color: #0f1b31;
+  box-shadow: 0 16px 34px rgba(18, 46, 82, 0.09);
+}
+
+.glass-card ul {
+  gap: 8px;
+}
+
+.glass-card li {
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f8fbff, #ffffff);
+  border: 1px solid #dfe8f5;
+}
+
+.glass-card li p {
+  color: #66758e;
+}
+
+.glass-card .delivery-head strong {
+  color: #0f1b31;
+}
+
+.glass-card.secondary {
+  padding: 18px;
+  border: 0;
+  background: linear-gradient(135deg, #10284a, #15538b);
+  color: #ffffff;
+  box-shadow: 0 18px 38px rgba(16, 40, 74, 0.22);
+}
+
+.glass-card.secondary h3 {
+  margin: 4px 0;
+  font-size: 28px;
+}
+
+.goal-panel {
+  grid-column: span 7;
+  order: 3;
+  border-radius: 24px;
+  background:
+    radial-gradient(260px 160px at 0% 100%, rgba(0, 142, 215, 0.1), transparent 70%),
+    #ffffff;
+  border-color: #dce8f6;
+  box-shadow: 0 18px 42px rgba(16, 48, 88, 0.09);
+}
+
+.goal-progress .goal-values {
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 1.1;
+  color: #07132b;
+}
+
+.goal-bar {
+  height: 10px;
+  background: #ecf2fb;
+}
+
+.goal-percent {
+  font-weight: 800;
+  color: #236ed2;
+}
+
+.activity-grid {
+  grid-column: span 5;
+  order: 4;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.activity-column {
+  border-radius: 20px;
+  background: #ffffff;
+  border-color: #dce8f6;
+  box-shadow: 0 16px 34px rgba(16, 48, 88, 0.08);
+}
+
+.activity-column li {
+  background: #f8fbff;
+  border-color: #e0e9f6;
+}
+
+.deep-metrics {
+  order: 5;
+  grid-template-columns: minmax(420px, 0.95fr) minmax(520px, 1.05fr);
+}
+
+.metric-card {
+  min-height: 118px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  border-color: #dce8f6;
+  box-shadow: 0 14px 30px rgba(16, 48, 88, 0.07);
+}
+
+.metric-value {
+  color: #08142c;
+}
+
+.pipeline-modern,
+.pipeline-column {
+  border-color: #dce8f6;
+  box-shadow: 0 14px 30px rgba(16, 48, 88, 0.06);
+}
+
+@media (max-width: 1180px) {
+  .hero-banner,
+  .deep-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .goal-panel,
+  .activity-grid {
+    grid-column: 1 / -1;
+  }
+
+  .hero-highlight-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* Login refresh */
 .login-page {
   background:
