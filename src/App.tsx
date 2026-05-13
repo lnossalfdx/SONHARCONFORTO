@@ -590,7 +590,15 @@ const formatPaymentLabel = (payment: SalePayment) => {
   return payment.method
 }
 
-const generateSaleId = () => 'VEN-0000'
+const getSaleIdNumber = (id: string | null | undefined) => {
+  const match = id?.match(/\d+$/)
+  return match ? Number(match[0]) : 0
+}
+
+const generateSaleId = (existingSales: Sale[] = []) => {
+  const nextSequence = existingSales.reduce((max, sale) => Math.max(max, getSaleIdNumber(sale.id)), 0) + 1
+  return `VEN-${String(nextSequence).padStart(4, '0')}`
+}
 
 type InventoryFormState = {
   productId: string
@@ -1472,6 +1480,21 @@ useEffect(() => {
       setSales([])
     } finally {
       setSalesLoading(false)
+    }
+  }, [authToken])
+
+  const fetchNextSaleIdFromApi = useCallback(async () => {
+    if (!authToken) return null
+    try {
+      const response = await fetch(`${API_BASE_URL}/sales/next-id`, {
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) return null
+      const data = await response.json()
+      return typeof data?.publicId === 'string' ? data.publicId : null
+    } catch (error) {
+      console.error(error)
+      return null
     }
   }, [authToken])
 
@@ -2741,10 +2764,15 @@ const focusInventoryPanel = (productId?: string) => {
     } else {
       if (!canRegisterSales) return
       setSaleModalOpen(true)
-      const { resolvedClients } = await ensureSaleDependencies()
+      const fallbackDraftId = generateSaleId([...sales, ...salesPageItems])
+      setSaleDraftId(fallbackDraftId)
+      const [{ resolvedClients }, nextSaleId] = await Promise.all([
+        ensureSaleDependencies(),
+        fetchNextSaleIdFromApi(),
+      ])
       setSaleReceiptImages([])
       setEditingSale(null)
-      setSaleDraftId(generateSaleId())
+      setSaleDraftId(nextSaleId ?? fallbackDraftId)
       setSaleForm(createSaleFormState(resolvedClients))
       const firstClient = resolvedClients[0]
       setSaleClientSearch(firstClient ? firstClient.name : '')
@@ -4874,55 +4902,63 @@ const focusInventoryPanel = (productId?: string) => {
           <div className="calendar-grid">
             {calendarRange.map((date) => {
               const deliveries = deliveriesByDate[date] ?? []
+              const dayPendingCount = deliveries.filter((sale) => sale.status === 'pendente').length
               return (
-                <div className="calendar-day" key={date}>
-                  <p className="day-label">
-                    {new Date(date).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-                  </p>
+                <div className={`calendar-day ${deliveries.length ? 'has-deliveries' : 'is-empty'}`} key={date}>
+                  <div className="day-label">
+                    <span>{new Date(date).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</span>
+                    {deliveries.length > 0 && (
+                      <strong>
+                        {deliveries.length} {deliveries.length === 1 ? 'entrega' : 'entregas'}
+                      </strong>
+                    )}
+                  </div>
                   <div className="day-deliveries">
-                    {deliveries.length === 0 && <p className="empty-state mini">Sem entregas.</p>}
+                    {deliveries.length === 0 && <p className="empty-state mini">Livre</p>}
                     {deliveries.map((sale) => {
                       const client = clients.find((clientItem) => clientItem.id === sale.clientId)
+                      const productSummary = sale.items
+                        .map(
+                          (saleItem) =>
+                            stockItems.find((stock) => stock.id === saleItem.productId)?.name ??
+                            saleItem.customName ??
+                            saleItem.productName ??
+                            '',
+                        )
+                        .filter(Boolean)
+                        .join(', ')
                       return (
                         <div className={`calendar-card ${sale.status}`} key={sale.id}>
-                          <div>
+                          <div className="calendar-card-main">
                             <strong>{client?.name ?? sale.clientName ?? 'Cliente removido'}</strong>
                             <span className="calendar-sale-id">#{sale.id}</span>
-                            <p className="sale-meta mini">
-                              {sale.items
-                                .map(
-                                  (saleItem) =>
-                                    stockItems.find((stock) => stock.id === saleItem.productId)?.name ??
-                                    saleItem.customName ??
-                                    saleItem.productName ??
-                                    '',
-                                )
-                                .filter(Boolean)
-                                .join(', ')}
-                            </p>
+                            <p className="sale-meta mini">{productSummary || 'Itens pendentes de vínculo'}</p>
                           </div>
-                          {sale.status === 'pendente' ? (
-                            <button
-                              type="button"
-                              className="primary subtle"
-                              onClick={() =>
-                                setConfirmDeliveryState({
-                                  sale,
-                                  redirect: 'sleepLab',
-                                })
-                              }
-                            >
-                              Confirmar
-                            </button>
-                          ) : (
-                            <span className={`chip ${sale.status === 'entregue' ? 'success' : 'danger'}`}>
-                              {sale.status === 'entregue' ? 'Entregue' : 'Cancelado'}
-                            </span>
-                          )}
+                          <div className="calendar-card-action">
+                            {sale.status === 'pendente' ? (
+                              <button
+                                type="button"
+                                className="primary subtle"
+                                onClick={() =>
+                                  setConfirmDeliveryState({
+                                    sale,
+                                    redirect: 'sleepLab',
+                                  })
+                                }
+                              >
+                                Confirmar
+                              </button>
+                            ) : (
+                              <span className={`chip ${sale.status === 'entregue' ? 'success' : 'danger'}`}>
+                                {sale.status === 'entregue' ? 'Entregue' : 'Cancelado'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )
                     })}
                   </div>
+                  {dayPendingCount > 0 && <span className="day-pending-line">{dayPendingCount} pendente{dayPendingCount > 1 ? 's' : ''}</span>}
                 </div>
               )
             })}

@@ -556,6 +556,31 @@ router.get('/', async (request, response) => {
   return response.json(data ?? [])
 })
 
+router.get('/next-id', roleGuard(['admin', 'seller']), async (_request, response) => {
+  const { data, error } = await supabase
+    .from('sales')
+    .select('sequence, publicId')
+    .order('sequence', { ascending: false, nullsFirst: false })
+    .order('createdAt', { ascending: false })
+    .limit(1)
+
+  if (error) {
+    return response.status(500).json({ message: error.message })
+  }
+
+  const latest = data?.[0]
+  const sequenceFromColumn = typeof latest?.sequence === 'number' ? latest.sequence : 0
+  const sequenceFromPublicId =
+    typeof latest?.publicId === 'string'
+      ? Number(latest.publicId.match(/\d+$/)?.[0] ?? 0)
+      : 0
+  const nextSequence = Math.max(sequenceFromColumn, sequenceFromPublicId, 0) + 1
+  return response.json({
+    sequence: nextSequence,
+    publicId: formatPublicId(nextSequence),
+  })
+})
+
 router.get('/receipts', async (request, response) => {
   const idsParam = typeof request.query.ids === 'string' ? request.query.ids : ''
   const ids = idsParam

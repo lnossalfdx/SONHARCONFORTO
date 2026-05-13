@@ -524,6 +524,7 @@
     grid-template-columns: 1fr;
     gap: 8px;
     align-items: flex-start;
+    min-height: auto;
   }
 
   .assist-form-grid,
