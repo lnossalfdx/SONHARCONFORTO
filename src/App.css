@@ -2796,26 +2796,15 @@ body {
   width: 100%;
 }
 
-.receipt-social-head span {
+.receipt-social-head > img {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-weight: 900;
+  object-fit: contain;
   flex: 0 0 auto;
 }
 
-.receipt-social-head.instagram span {
-  background: linear-gradient(135deg, #f9ce34, #ee2a7b, #6228d7);
-}
-
-.receipt-social-head.google span {
-  background: #fff;
-  color: #4285f4;
-  border: 1px solid #dfe6f2;
-  font-size: 22px;
+.receipt-social-head.google > img {
+  border-radius: 8px;
 }
 
 .receipt-social-head strong {
@@ -2833,10 +2822,11 @@ body {
   font-weight: 700;
 }
 
-.receipt-qr-column img {
+.receipt-qr-column > img {
   width: 94px;
   height: 94px;
   object-fit: contain;
+  image-rendering: crisp-edges;
 }
 
 .receipt-thanks span {

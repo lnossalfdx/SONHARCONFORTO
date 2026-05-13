@@ -7,8 +7,10 @@ import './App.css'
 import './mobile.css'
 import { API_BASE_URL } from './lib/api.ts'
 import { getSupabaseClient } from './lib/supabase.ts'
-import instagramQr from '../instagram.png'
-import googleMapsQr from '../google-maps.png'
+import instagramLogo from '../instagram.png'
+import instagramQr from '../instagram-qr.png'
+import googleMapsLogo from '../google-maps.png'
+import googleMapsQr from '../maps.png'
 
 type PageId = 'dashboard' | 'clientes' | 'sleepLab' | 'estoque' | 'entregas' | 'assistencias' | 'financeiro'
 
@@ -4229,7 +4231,7 @@ const focusInventoryPanel = (productId?: string) => {
           <div className="receipt-social-card">
             <div className="receipt-qr-column">
               <div className="receipt-social-head instagram">
-                <span>◎</span>
+                <img src={instagramLogo} alt="Instagram" />
                 <div>
                   <strong>Siga a Sonhar Conforto</strong>
                   <small>Novidades, ofertas e dicas para o seu conforto</small>
@@ -4240,7 +4242,7 @@ const focusInventoryPanel = (productId?: string) => {
             </div>
             <div className="receipt-qr-column">
               <div className="receipt-social-head google">
-                <span>G</span>
+                <img src={googleMapsLogo} alt="Google Maps" />
                 <div>
                   <strong>Avalie no Google</strong>
                   <small>Sua opinião nos ajuda a melhorar sempre</small>
