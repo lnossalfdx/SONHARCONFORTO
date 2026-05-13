@@ -8,7 +8,7 @@ import './mobile.css'
 import { API_BASE_URL } from './lib/api.ts'
 import { getSupabaseClient } from './lib/supabase.ts'
 import instagramQr from '../instagram.png'
-import mapsQr from '../maps.png'
+import googleMapsQr from '../google-maps.png'
 
 type PageId = 'dashboard' | 'clientes' | 'sleepLab' | 'estoque' | 'entregas' | 'assistencias' | 'financeiro'
 
@@ -4246,7 +4246,7 @@ const focusInventoryPanel = (productId?: string) => {
                   <small>Sua opinião nos ajuda a melhorar sempre</small>
                 </div>
               </div>
-              <img src={mapsQr} alt="QR Code Google Maps Sonhar Conforto" />
+              <img src={googleMapsQr} alt="QR Code Google Maps Sonhar Conforto" />
               <small>Google Maps / avaliações</small>
             </div>
             <div className="receipt-thanks">
