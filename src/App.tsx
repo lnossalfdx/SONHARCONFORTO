@@ -4533,9 +4533,6 @@ const focusInventoryPanel = (productId?: string) => {
         salePaymentFilter !== 'all' ||
         saleMinValue,
     )
-    const visibleSalesTotal = pagedSales.reduce((sum, sale) => sum + sale.value, 0)
-    const visiblePendingSales = pagedSales.filter((sale) => sale.status === 'pendente').length
-    const visibleDeliveredSales = pagedSales.filter((sale) => sale.status === 'entregue').length
     const saleStatusFilters = [
       { id: 'all', label: 'Todas', count: salesPageTotal },
       { id: 'pendente', label: 'Pendentes', count: sales.filter((sale) => sale.status === 'pendente').length },
@@ -4600,20 +4597,6 @@ const focusInventoryPanel = (productId?: string) => {
                 value={saleSearch}
                 onChange={(event) => setSaleSearch(event.target.value)}
               />
-            </div>
-            <div className="sales-mini-metrics">
-              <div>
-                <span>Encontrados</span>
-                <strong>{salesPageTotal}</strong>
-              </div>
-              <div>
-                <span>Valor nesta página</span>
-                <strong>{formatCurrency(visibleSalesTotal)}</strong>
-              </div>
-              <div>
-                <span>Status</span>
-                <strong>{visibleDeliveredSales} entregues · {visiblePendingSales} pendentes</strong>
-              </div>
             </div>
           </div>
 
@@ -4721,6 +4704,9 @@ const focusInventoryPanel = (productId?: string) => {
                   : 0
                 const weeklyTotal = weeklyPlan ? weeklyPlan.weeks * weeklyPlan.weeklyAmount : 0
                 const weeklyRemaining = Math.max(0, weeklyTotal - weeklyPaid)
+                const mainItems = sale.items.slice(0, 3)
+                const remainingItems = Math.max(0, sale.items.length - mainItems.length)
+                const paymentSummary = sale.payments.map((payment) => formatPaymentLabel(payment)).join(' · ')
                 return (
                   <div className={`sale-card ${sale.status}`} key={sale.id}>
                     <div className="sale-card-main">
@@ -4732,14 +4718,14 @@ const focusInventoryPanel = (productId?: string) => {
                         <span className={`chip ${statusTone}`}>{statusLabel}</span>
                       </div>
                       <div className="sale-summary-row">
-                        <span>{totalUnits} itens</span>
+                        <span>{totalUnits} {totalUnits === 1 ? 'item' : 'itens'}</span>
                         <strong>{formatCurrency(sale.value)}</strong>
                         {sale.deliveryDate && (
                           <span>Entrega {new Date(sale.deliveryDate).toLocaleDateString('pt-BR')}</span>
                         )}
                       </div>
                       <div className="sale-items-list">
-                        {sale.items.map((item, idx) => {
+                        {mainItems.map((item, idx) => {
                           const productInfo = stockItems.find((stock) => stock.id === item.productId)
                           return (
                             <span key={`${item.productId}-${idx}`}>
@@ -4749,13 +4735,10 @@ const focusInventoryPanel = (productId?: string) => {
                             </span>
                           )
                         })}
+                        {remainingItems > 0 && <span className="sale-more-items">+ {remainingItems} item{remainingItems > 1 ? 's' : ''}</span>}
                       </div>
                       <div className="sale-payments-list">
-                        {sale.payments.map((payment) => (
-                          <span key={payment.id}>
-                            {formatPaymentLabel(payment)} — {formatCurrency(payment.amount)}
-                          </span>
-                        ))}
+                        <span>{paymentSummary || 'Pagamento não informado'}</span>
                       </div>
                       {weeklyPlan && (
                         <div className="sale-note">
@@ -4777,7 +4760,7 @@ const focusInventoryPanel = (productId?: string) => {
                       {awaitingApproval && (
                         <p className="sale-note warn">Itens personalizados aguardando aprovação do administrador.</p>
                       )}
-                      <p className="sale-note">
+                      <p className="sale-note sale-created-note">
                         Criado em {new Date(sale.createdAt).toLocaleDateString('pt-BR')} · {statusLabel.toLowerCase()}
                       </p>
                     </div>

@@ -449,9 +449,12 @@
   }
 
   .sales-command-bar,
-  .sales-mini-metrics,
   .sales-filter-grid,
   .date-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .sale-card {
     grid-template-columns: 1fr;
   }
 

@@ -1234,12 +1234,17 @@ body {
 }
 
 .sale-items-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 6px 0;
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
   font-size: 13px;
   color: var(--muted);
+}
+
+.sale-items-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sale-payments-list {
@@ -1248,6 +1253,18 @@ body {
   gap: 6px;
   font-size: 12px;
   color: var(--muted);
+}
+
+.sale-payments-list span {
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #f5f8ff;
+  border: 1px solid #e1e9f5;
+}
+
+.sale-more-items {
+  color: #2f85c9;
+  font-weight: 800;
 }
 
 .sales-page {
@@ -1262,7 +1279,7 @@ body {
 
 .sales-panel-head {
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .sales-head-actions {
@@ -1273,10 +1290,7 @@ body {
 }
 
 .sales-command-bar {
-  display: grid;
-  grid-template-columns: minmax(320px, 1.35fr) minmax(360px, 1fr);
-  gap: 12px;
-  align-items: stretch;
+  display: block;
 }
 
 .sales-search-card,
@@ -1288,11 +1302,12 @@ body {
 }
 
 .sales-search-card {
-  padding: 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  box-shadow: 0 12px 26px rgba(15, 45, 92, 0.04);
 }
 
 .sales-search-card span,
-.sales-mini-metrics span,
 .sales-filter-grid label {
   display: block;
   color: #71809c;
@@ -1303,44 +1318,26 @@ body {
 .sales-search-card input {
   width: 100%;
   margin-top: 8px;
-  min-height: 48px;
+  min-height: 46px;
   border: 1px solid #dce6f4;
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 0 14px;
   color: #152238;
   font-size: 15px;
 }
 
-.sales-mini-metrics {
-  display: grid;
-  grid-template-columns: 0.7fr 1fr 1.2fr;
-  gap: 10px;
-}
-
-.sales-mini-metrics div {
-  border: 1px solid #dfe8f5;
-  border-radius: 18px;
-  background: #ffffff;
-  padding: 14px;
-}
-
-.sales-mini-metrics strong {
-  display: block;
-  margin-top: 6px;
-  color: #132038;
-  font-size: 17px;
-}
-
 .sales-filter-shell {
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 12px;
+  border-radius: 16px;
+  box-shadow: 0 12px 26px rgba(15, 45, 92, 0.04);
 }
 
 .sales-status-tabs,
 .sales-quick-periods {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
 .sales-status-tabs button,
@@ -1356,7 +1353,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px;
+  padding: 7px 11px;
 }
 
 .sales-status-tabs button strong {
@@ -1384,7 +1381,7 @@ body {
 }
 
 .sales-quick-periods {
-  margin-top: 10px;
+  margin-top: 9px;
 }
 
 .sales-quick-periods button {
@@ -1394,7 +1391,7 @@ body {
 
 .sales-filter-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.2fr) minmax(190px, 0.9fr) minmax(150px, 0.7fr);
+  grid-template-columns: minmax(260px, 1.2fr) minmax(220px, 0.9fr) minmax(160px, 0.65fr);
   gap: 10px;
   margin-top: 10px;
 }
@@ -2226,14 +2223,17 @@ body {
 }
 
 .sale-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 190px);
+  gap: 16px;
   padding: 16px;
   border-radius: 18px;
+  border-color: #dfe8f5;
   background: #ffffff;
-  box-shadow: 0 10px 28px rgba(12, 34, 68, 0.04);
+  box-shadow: 0 12px 30px rgba(12, 34, 68, 0.045);
 }
 
 .sale-card-main {
-  flex: 1 1 620px;
   min-width: 0;
 }
 
@@ -2345,28 +2345,28 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .sale-card-headline h3 {
   margin: 2px 0 0;
   color: #14213d;
   font-size: 18px;
+  line-height: 1.2;
 }
 
 .sale-summary-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
   align-items: center;
-  margin: 10px 0;
+  margin: 10px 0 8px;
 }
 
 .sale-summary-row span,
 .sale-summary-row strong {
   border: 1px solid #e2e9f5;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 5px 9px;
   background: #f8fbff;
   color: #65738f;
   font-size: 13px;
@@ -2380,15 +2380,18 @@ body {
 .sale-card-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
-  min-width: 180px;
+  gap: 7px;
+  align-items: stretch;
+  min-width: 0;
   padding-left: 14px;
   border-left: 1px solid #e5edf7;
 }
 
 .sale-card-actions button {
   width: 100%;
+  min-height: 38px;
+  border-radius: 12px;
+  padding: 8px 10px;
 }
 
 .sale-receipt {
@@ -2498,6 +2501,12 @@ body {
   font-weight: 700;
 }
 
+.sale-id {
+  color: #2f85c9;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
 .client-focus,
 .sale-meta,
 .sale-note {
@@ -2509,6 +2518,11 @@ body {
 .sale-note.warn {
   color: #c37b00;
   font-weight: 600;
+}
+
+.sale-created-note {
+  padding-top: 8px;
+  border-top: 1px dashed #e4edf7;
 }
 
 .sale-meta.mini {
