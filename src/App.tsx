@@ -7,6 +7,8 @@ import './App.css'
 import './mobile.css'
 import { API_BASE_URL } from './lib/api.ts'
 import { getSupabaseClient } from './lib/supabase.ts'
+import instagramQr from '../instagram.png'
+import mapsQr from '../maps.png'
 
 type PageId = 'dashboard' | 'clientes' | 'sleepLab' | 'estoque' | 'entregas' | 'assistencias' | 'financeiro'
 
@@ -365,6 +367,13 @@ const getLocalEndOfDayIso = (value: string) => {
   const [year, month, day] = value.split('-').map(Number)
   if (!year || !month || !day) return ''
   return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString()
+}
+
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 const normalizeDateToIso = (value: string) => {
@@ -4119,19 +4128,29 @@ const focusInventoryPanel = (productId?: string) => {
     })
     const grossSubtotal = sale.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
     const paymentsTotal = sale.payments.reduce((sum, payment) => sum + payment.amount, 0)
+    const totalDiscount = Math.max(0, grossSubtotal - sale.value)
+    const receiptOrderId = isPublicSaleCode(sale.id) ? sale.id : `VEN-${String(sale.id).slice(0, 4).toUpperCase()}`
+    const clientAddressLine = `${receiptClient?.addressStreet ?? 'Rua não informada'}, ${
+      receiptClient?.addressNumber ?? 's/n'
+    }`
+    const clientCityLine = `${receiptClient?.addressNeighborhood ?? 'Bairro'} · ${
+      receiptClient?.addressCity ?? 'Cidade'
+    }`
 
     return ['1ª via • Loja', '2ª via • Cliente'].map((copyLabel, copyIndex) => (
       <section className="receipt-copy" data-copy={copyLabel} key={copyLabel}>
         <header className="receipt-copy-head">
-          <div className="receipt-company">
-            <p className="receipt-brand">{COMPANY_INFO.brand}</p>
-            <p>{COMPANY_INFO.legalName} · CNPJ {COMPANY_INFO.cnpj}</p>
-            <p>{COMPANY_INFO.address}</p>
-            <p>{COMPANY_INFO.phone} · {COMPANY_INFO.email}</p>
+          <div className="receipt-brand-block">
+            <img src="/sonhar-logo.jpg" alt="Sonhar Conforto" />
+            <div className="receipt-company">
+              <p className="receipt-legal">{COMPANY_INFO.legalName} · CNPJ {COMPANY_INFO.cnpj}</p>
+              <p>{COMPANY_INFO.address}</p>
+              <p>{COMPANY_INFO.phone} · {COMPANY_INFO.email}</p>
+            </div>
           </div>
           <div className="receipt-head-meta">
             <p>
-              Pedido: <strong>{sale.id}</strong>
+              Pedido: <strong>{receiptOrderId}</strong>
             </p>
             <p>Data: {new Date(sale.createdAt).toLocaleDateString('pt-BR')}</p>
             <p>
@@ -4144,18 +4163,14 @@ const focusInventoryPanel = (productId?: string) => {
         <div className="receipt-block receipt-client">
           <div>
             <span className="field-label">Cliente</span>
-            <p>{receiptClient?.name ?? receiptSale?.clientName ?? 'Cliente removido'}</p>
+            <p className="receipt-strong">{receiptClient?.name ?? receiptSale?.clientName ?? 'Cliente removido'}</p>
             <p>{receiptClient?.cpf ? formatCpf(receiptClient.cpf) : 'CPF não informado'}</p>
             <p>{receiptClient?.phone ? formatPhone(receiptClient.phone) : 'Telefone não informado'}</p>
           </div>
           <div>
             <span className="field-label">Endereço</span>
-            <p>
-              {receiptClient?.addressStreet ?? 'Rua não informada'}, {receiptClient?.addressNumber ?? 's/n'}
-            </p>
-            <p>
-              {receiptClient?.addressNeighborhood ?? 'Bairro'} · {receiptClient?.addressCity ?? 'Cidade'}
-            </p>
+            <p className="receipt-strong">{clientAddressLine}</p>
+            <p>{clientCityLine}</p>
             {receiptClient?.addressNote && <p className="field-note">{receiptClient.addressNote}</p>}
           </div>
         </div>
@@ -4177,7 +4192,7 @@ const focusInventoryPanel = (productId?: string) => {
                 <td>{item.productName}</td>
                 <td>{item.quantity}</td>
                 <td>{formatCurrency(item.unitPrice)}</td>
-                <td>-{item.discount ? formatCurrency(item.discount) : 'R$ 0,00'}</td>
+                <td>-{formatCurrency(item.quantity * item.discount)}</td>
                 <td>{formatCurrency(item.quantity * (item.unitPrice - item.discount))}</td>
               </tr>
             ))}
@@ -4191,7 +4206,7 @@ const focusInventoryPanel = (productId?: string) => {
             <tr>
               <td colSpan={4}></td>
               <td>Descontos</td>
-              <td>-{formatCurrency(sale.discount)}</td>
+              <td>-{formatCurrency(totalDiscount)}</td>
             </tr>
             <tr>
               <td colSpan={4}></td>
@@ -4200,23 +4215,55 @@ const focusInventoryPanel = (productId?: string) => {
             </tr>
           </tfoot>
         </table>
-        <div className="receipt-block">
-          <div>
+        <div className="receipt-lower-grid">
+          <div className="receipt-payment-card">
             <span className="field-label">Pagamentos</span>
             {sale.payments.map((payment) => (
-              <p key={payment.id}>
+              <p className="receipt-payment-line" key={payment.id}>
                 {formatPaymentLabel(payment)} — {formatCurrency(payment.amount)}
               </p>
             ))}
             <p className="field-note">Recebido: {formatCurrency(paymentsTotal)}</p>
           </div>
-          {sale.note && (
-            <div>
-              <span className="field-label">Observações</span>
-              <p>{sale.note}</p>
+
+          <div className="receipt-social-card">
+            <div className="receipt-qr-column">
+              <div className="receipt-social-head instagram">
+                <span>◎</span>
+                <div>
+                  <strong>Siga a Sonhar Conforto</strong>
+                  <small>Novidades, ofertas e dicas para o seu conforto</small>
+                </div>
+              </div>
+              <img src={instagramQr} alt="QR Code Instagram Sonhar Conforto" />
+              <small>@SONHAR.CONFORTO</small>
             </div>
-          )}
+            <div className="receipt-qr-column">
+              <div className="receipt-social-head google">
+                <span>G</span>
+                <div>
+                  <strong>Avalie no Google</strong>
+                  <small>Sua opinião nos ajuda a melhorar sempre</small>
+                </div>
+              </div>
+              <img src={mapsQr} alt="QR Code Google Maps Sonhar Conforto" />
+              <small>Google Maps / avaliações</small>
+            </div>
+            <div className="receipt-thanks">
+              <span>♡</span>
+              <strong>Obrigado</strong>
+              <p>por escolher a Sonhar Conforto!</p>
+              <div className="receipt-stars">★★★★★</div>
+              <small>Fazemos tudo para você ter noites melhores.</small>
+            </div>
+          </div>
         </div>
+        {sale.note && (
+          <div className="receipt-observations">
+            <span className="field-label">Observações</span>
+            <p>{sale.note}</p>
+          </div>
+        )}
         <div className="receipt-footer">
           <div>
             <p className="field-label">Assinatura da loja</p>
@@ -4228,12 +4275,30 @@ const focusInventoryPanel = (productId?: string) => {
           </div>
         </div>
         <div className="receipt-terms">
-          <p className="field-label">Termos</p>
-          <ul>
-            {RECEIPT_TERMS.map((term) => (
-              <li key={term}>{term}</li>
-            ))}
-          </ul>
+          <div>
+            <p className="field-label">Termos</p>
+            <ul>
+              {RECEIPT_TERMS.map((term) => (
+                <li key={term}>{term}</li>
+              ))}
+            </ul>
+          </div>
+          <aside className="receipt-benefits">
+            <div>
+              <span>✓</span>
+              <strong>Garantia de 1 ano</strong>
+            </div>
+            <div>
+              <span>▣</span>
+              <strong>Entrega com cuidado</strong>
+            </div>
+          </aside>
+        </div>
+        <div className="receipt-tagline">
+          <span>✧</span>
+          <strong>Sonhar Conforto:</strong>
+          <em>conforto que acolhe, noites que renovam.</em>
+          <span>♥</span>
         </div>
         {copyIndex === 0 && <div className="receipt-divider" />}
       </section>
@@ -5406,100 +5471,208 @@ const focusInventoryPanel = (productId?: string) => {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
     const financeClientOptions = [{ id: 'all', name: 'Todos os clientes' }, ...clients.map((client) => ({ id: client.id, name: client.name }))] as const
+    const today = new Date()
+    const currentMonthStart = formatDateInput(new Date(today.getFullYear(), today.getMonth(), 1))
+    const currentMonthEnd = formatDateInput(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+    const todayIso = formatDateInput(today)
+    const setFinancePeriod = (period: 'today' | 'month' | 'clear') => {
+      if (period === 'today') {
+        setFinanceDateStart(todayIso)
+        setFinanceDateEnd(todayIso)
+        return
+      }
+      if (period === 'month') {
+        setFinanceDateStart(currentMonthStart)
+        setFinanceDateEnd(currentMonthEnd)
+        return
+      }
+      setFinanceDateStart('')
+      setFinanceDateEnd('')
+    }
+    const clearFinanceFilters = () => {
+      setFinanceDateStart('')
+      setFinanceDateEnd('')
+      setFinanceCodeStart('')
+      setFinanceCodeEnd('')
+      setFinanceClientFilter('all')
+      setFinancePaymentFilter('all')
+      setFinanceMinValue('')
+      setFinanceMaxValue('')
+    }
+    const financePeriodLabel = financeDateStart || financeDateEnd
+      ? `${financeDateStart ? new Date(getLocalStartOfDayIso(financeDateStart)).toLocaleDateString('pt-BR') : 'Início'} até ${
+          financeDateEnd ? new Date(getLocalEndOfDayIso(financeDateEnd)).toLocaleDateString('pt-BR') : 'Hoje'
+        }`
+      : 'Todos os períodos'
+    const deliveredPercent = totalOrders ? Math.round((summaryDelivered / totalOrders) * 100) : 0
+    const pendingPercent = totalOrders ? 100 - deliveredPercent : 0
 
     return (
-      <div className="page-stack">
-        <section className="panel">
-          <div className="section-head">
+      <div className="page-stack finance-page">
+        <section className="panel finance-command">
+          <div className="section-head finance-command-head">
             <div>
               <p className="eyebrow">Financeiro</p>
-              <h2>Visão de faturamento e vendas</h2>
+              <h2>Resumo simples do dinheiro</h2>
+              <p className="hero-sub">{financePeriodLabel} · {paymentFilteredSales.length} vendas consideradas</p>
             </div>
             <div className="section-actions">
               {financeSummaryLoading && <span className="chip ghost">Atualizando…</span>}
               {financeSummaryError && <span className="chip alert">{financeSummaryError}</span>}
-              <span className="chip ghost">{paymentFilteredSales.length} resultados</span>
+              {hasActiveFinanceFilters && (
+                <button type="button" className="ghost compact" onClick={clearFinanceFilters}>
+                  Limpar filtros
+                </button>
+              )}
             </div>
           </div>
-          <div className="finance-metrics">
-            <div className="metric-card">
-              <p>Faturamento filtrado</p>
-              <h3>{formatCurrency(summaryRevenue)}</h3>
-              <span>Descontos aplicados: {formatCurrency(summaryDiscount)}</span>
+
+          <div className="finance-kpi-strip">
+            <div className="finance-kpi primary-kpi">
+              <span>Entrou</span>
+              <strong>{formatCurrency(summaryRevenue)}</strong>
+              <small>{totalOrders} vendas · {formatCurrency(summaryDiscount)} em descontos</small>
             </div>
-            <div className="metric-card">
-              <p>Ticket médio</p>
-              <h3>{averageTicket ? formatCurrency(averageTicket) : 'R$ 0,00'}</h3>
-              <span>{totalOrders} pedidos no período</span>
+            <div className="finance-kpi">
+              <span>Saiu</span>
+              <strong>{formatCurrency(summaryExpensesAmount)}</strong>
+              <small>{financeExpenses.length} saídas registradas</small>
             </div>
-            <div className="metric-card">
-              <p>Formas de pagamento</p>
-              <div className="metric-bar">
-                {paymentMethods.map((method) => {
-                  const value = summaryPaymentBreakdown[method] ?? 0
-                  if (!value) return null
+            <div className="finance-kpi result">
+              <span>Sobrou</span>
+              <strong>{formatCurrency(summaryNetRevenue)}</strong>
+              <small>Entradas menos saídas</small>
+            </div>
+            <div className="finance-kpi">
+              <span>Ticket médio</span>
+              <strong>{averageTicket ? formatCurrency(averageTicket) : 'R$ 0,00'}</strong>
+              <small>Média por venda</small>
+            </div>
+          </div>
+
+          <div className="finance-filter-panel">
+            <div className="quick-filter-pills">
+              <button type="button" className={financeDateStart === todayIso && financeDateEnd === todayIso ? 'active' : ''} onClick={() => setFinancePeriod('today')}>
+                Hoje
+              </button>
+              <button type="button" className={financeDateStart === currentMonthStart && financeDateEnd === currentMonthEnd ? 'active' : ''} onClick={() => setFinancePeriod('month')}>
+                Este mês
+              </button>
+              <button type="button" className={!financeDateStart && !financeDateEnd ? 'active' : ''} onClick={() => setFinancePeriod('clear')}>
+                Tudo
+              </button>
+            </div>
+            <div className="finance-filter-grid">
+              <label>
+                Período
+                <div className="date-pair">
+                  <input type="date" value={financeDateStart} onChange={(event) => setFinanceDateStart(event.target.value)} />
+                  <input type="date" value={financeDateEnd} onChange={(event) => setFinanceDateEnd(event.target.value)} />
+                </div>
+              </label>
+              <label>
+                Cliente
+                <select value={financeClientFilter} onChange={(event) => setFinanceClientFilter(event.target.value)}>
+                  {financeClientOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Pagamento
+                <select value={financePaymentFilter} onChange={(event) => setFinancePaymentFilter(event.target.value as typeof financePaymentFilter)}>
+                  <option value="all">Todos</option>
+                  {paymentMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Pedido
+                <div className="date-pair">
+                  <input value={financeCodeStart} onChange={(event) => setFinanceCodeStart(event.target.value)} placeholder="De" />
+                  <input value={financeCodeEnd} onChange={(event) => setFinanceCodeEnd(event.target.value)} placeholder="Até" />
+                </div>
+              </label>
+              <label>
+                Valor
+                <div className="date-pair">
+                  <input type="number" min={0} value={financeMinValue} onChange={(event) => setFinanceMinValue(event.target.value)} placeholder="Mín." />
+                  <input type="number" min={0} value={financeMaxValue} onChange={(event) => setFinanceMaxValue(event.target.value)} placeholder="Máx." />
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div className="finance-breakdown-grid">
+            <div className="finance-breakdown-card">
+              <div className="breakdown-head">
+                <p>Formas de pagamento</p>
+                <span>{formatCurrency(summaryRevenue)}</span>
+              </div>
+              <div className="breakdown-list">
+                {[...paymentMethods.map((method) => [method, summaryPaymentBreakdown[method] ?? 0] as const), ...extraPaymentEntries].filter(([, value]) => value > 0).map(([label, value]) => {
                   const percent = summaryRevenue ? Math.round((value / summaryRevenue) * 100) : 0
                   return (
-                    <div key={method}>
-                      <strong>{method}</strong>
-                      <span>{formatCurrency(value)} · {percent}%</span>
+                    <div className="breakdown-item" key={label}>
+                      <div>
+                        <strong>{label}</strong>
+                        <span>{formatCurrency(value)}</span>
+                      </div>
+                      <div className="breakdown-meter">
+                        <span style={{ width: `${Math.max(4, percent)}%` }} />
+                      </div>
+                      <small>{percent}%</small>
                     </div>
                   )
                 })}
-                {extraPaymentEntries.map(([label, value]) => {
-                  const percent = summaryRevenue ? Math.round((value / summaryRevenue) * 100) : 0
-                  return (
-                    <div key={label}>
-                      <strong>{label}</strong>
-                      <span>{formatCurrency(value)} · {percent}%</span>
-                    </div>
-                  )
-                })}
-                {summaryRevenue === 0 && <span className="muted">Sem pagamentos registrados</span>}
+                {summaryRevenue === 0 && <p className="empty-state compact">Sem pagamentos no filtro atual.</p>}
               </div>
             </div>
-            <div className="metric-card">
-              <p>Status das vendas</p>
-              <div className="metric-bar">
+
+            <div className="finance-breakdown-card">
+              <div className="breakdown-head">
+                <p>Status das vendas</p>
+                <span>{summaryDelivered} entregues · {summaryPending} pendentes</span>
+              </div>
+              <div className="status-split">
+                <span style={{ width: `${deliveredPercent}%` }} />
+                <span style={{ width: `${pendingPercent}%` }} />
+              </div>
+              <div className="status-legend">
+                <span>Entregues {deliveredPercent}%</span>
+                <span>Pendentes {pendingPercent}%</span>
+              </div>
+              <div className="finance-mini-list">
                 <div>
-                  <span>Entregues</span>
-                  <strong>{summaryDelivered}</strong>
+                  <span>Semanais recebidos</span>
+                  <strong>{formatCurrency(weeklyTotalPaid)}</strong>
                 </div>
                 <div>
-                  <span>Pendentes</span>
-                  <strong>{summaryPending}</strong>
+                  <span>Semanais em aberto</span>
+                  <strong>{formatCurrency(weeklyTotalPending)}</strong>
                 </div>
               </div>
+              {Object.keys(summaryExpenseBreakdown).length > 0 && (
+                <div className="expense-chip-list">
+                  {Object.entries(summaryExpenseBreakdown).map(([label, value]) => (
+                    <span key={label}>{label}: {formatCurrency(value)}</span>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="metric-card">
-              <p>Saídas registradas</p>
-              <h3>{formatCurrency(summaryExpensesAmount)}</h3>
-              <div className="metric-bar">
-                {Object.keys(summaryExpenseBreakdown).length === 0 && (
-                  <span className="muted">Sem saídas no filtro atual.</span>
-                )}
-                {Object.entries(summaryExpenseBreakdown).map(([label, value]) => (
-                  <div key={label}>
-                    <strong>{label}</strong>
-                    <span>{formatCurrency(value)}</span>
-                  </div>
-                ))}
+
+            <div className="finance-breakdown-card">
+              <div className="breakdown-head">
+                <p>Melhores clientes</p>
+                <span>Top 3</span>
               </div>
-            </div>
-            <div className="metric-card">
-              <p>Resultado líquido</p>
-              <h3>{formatCurrency(summaryNetRevenue)}</h3>
-              <span>Entradas - saídas considerando o filtro atual.</span>
-            </div>
-            <div className="metric-card">
-              <p>Pagamentos semanais</p>
-              <h3>{formatCurrency(weeklyTotalPaid)}</h3>
-              <span>Previsto: {formatCurrency(weeklyTotalExpected)} · Faltam {formatCurrency(weeklyTotalPending)}</span>
-            </div>
-            <div className="metric-card">
-              <p>Top clientes</p>
               {topClients.length ? (
-                <ul className="metric-list">
+                <ul className="metric-list clean">
                   {topClients.map(([clientId, value]) => {
                     const client = clients.find((item) => item.id === clientId)
                     const fallbackSale = sales.find((sale) => sale.clientId === clientId)
@@ -5512,83 +5685,9 @@ const focusInventoryPanel = (productId?: string) => {
                   })}
                 </ul>
               ) : (
-                <span className="muted">Nenhum cliente no filtro atual.</span>
+                <p className="empty-state compact">Nenhum cliente no filtro atual.</p>
               )}
             </div>
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">Filtros</p>
-              <h2>Refine análises</h2>
-            </div>
-          </div>
-          <div className="filter-row finance">
-            <label>
-              Desde
-              <input type="date" value={financeDateStart} onChange={(event) => setFinanceDateStart(event.target.value)} />
-            </label>
-            <label>
-              Até
-              <input type="date" value={financeDateEnd} onChange={(event) => setFinanceDateEnd(event.target.value)} />
-            </label>
-            <label>
-              Código inicial
-              <input
-                value={financeCodeStart}
-                onChange={(event) => setFinanceCodeStart(event.target.value)}
-                placeholder="0001"
-              />
-            </label>
-            <label>
-              Código final
-              <input
-                value={financeCodeEnd}
-                onChange={(event) => setFinanceCodeEnd(event.target.value)}
-                placeholder="0020"
-              />
-            </label>
-            <label>
-              Cliente
-              <select value={financeClientFilter} onChange={(event) => setFinanceClientFilter(event.target.value)}>
-                {financeClientOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Pagamento
-              <select value={financePaymentFilter} onChange={(event) => setFinancePaymentFilter(event.target.value as typeof financePaymentFilter)}>
-                <option value="all">Todos</option>
-                {paymentMethods.map((method) => (
-                  <option key={method} value={method}>
-                    {method}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Valor mínimo (R$)
-              <input
-                type="number"
-                min={0}
-                value={financeMinValue}
-                onChange={(event) => setFinanceMinValue(event.target.value)}
-              />
-            </label>
-            <label>
-              Valor máximo (R$)
-              <input
-                type="number"
-                min={0}
-                value={financeMaxValue}
-                onChange={(event) => setFinanceMaxValue(event.target.value)}
-              />
-            </label>
           </div>
         </section>
 

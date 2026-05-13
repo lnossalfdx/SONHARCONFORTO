@@ -428,6 +428,37 @@
     gap: 10px;
   }
 
+  .finance-command-head,
+  .finance-command-head .section-actions {
+    align-items: stretch;
+  }
+
+  .finance-kpi-strip,
+  .finance-filter-grid,
+  .finance-breakdown-grid,
+  .date-pair,
+  .status-legend,
+  .finance-mini-list {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-kpi-strip {
+    gap: 10px;
+  }
+
+  .finance-kpi strong {
+    font-size: 24px;
+  }
+
+  .finance-filter-panel {
+    padding: 10px;
+  }
+
+  .breakdown-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
   .activity-column,
   .pipeline-column,
   .assistance-card,
@@ -574,6 +605,37 @@
 
   .receipt-copy {
     padding: 12px;
+  }
+
+  .receipt-copy-head,
+  .receipt-lower-grid,
+  .receipt-social-card,
+  .receipt-terms {
+    grid-template-columns: 1fr;
+  }
+
+  .receipt-head-meta {
+    text-align: left;
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .receipt-brand-block {
+    flex-direction: column;
+  }
+
+  .receipt-brand-block img {
+    width: 150px;
+  }
+
+  .receipt-payment-card,
+  .receipt-qr-column + .receipt-qr-column,
+  .receipt-thanks,
+  .receipt-benefits {
+    border-left: 0;
+    border-right: 0;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .receipt-footer {
