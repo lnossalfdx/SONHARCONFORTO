@@ -4754,11 +4754,11 @@ const focusInventoryPanel = (productId?: string) => {
                         </div>
                       )}
                       {sale.discount > 0 && (
-                        <span className="chip ghost">Desconto aplicado · {formatCurrency(sale.discount)}</span>
+                        <span className="chip ghost sale-discount-chip">Desconto aplicado · {formatCurrency(sale.discount)}</span>
                       )}
-                      {sale.note && <p className="sale-note">Observação: {sale.note}</p>}
+                      {sale.note && <p className="sale-note sale-note-box">Observação: {sale.note}</p>}
                       {awaitingApproval && (
-                        <p className="sale-note warn">Itens personalizados aguardando aprovação do administrador.</p>
+                        <p className="sale-note sale-alert-note">Itens personalizados aguardando aprovação do administrador.</p>
                       )}
                       <p className="sale-note sale-created-note">
                         Criado em {new Date(sale.createdAt).toLocaleDateString('pt-BR')} · {statusLabel.toLowerCase()}

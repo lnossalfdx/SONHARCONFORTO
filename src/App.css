@@ -1117,9 +1117,10 @@ body {
 }
 
 .chip.success {
-  color: var(--blue);
-  border-color: #bee6ff;
-  background: #e7f6ff;
+  color: #138044;
+  border-color: #91e4ab;
+  background: #e3fbed;
+  font-weight: 800;
 }
 
 .chip.warning {
@@ -1236,7 +1237,11 @@ body {
 .sale-items-list {
   display: grid;
   gap: 5px;
-  margin: 8px 0;
+  margin: 10px 0 8px;
+  padding: 10px 12px;
+  border: 1px solid #e7eef8;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfdff, #ffffff);
   font-size: 13px;
   color: var(--muted);
 }
@@ -1251,6 +1256,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin: 6px 0;
   font-size: 12px;
   color: var(--muted);
 }
@@ -2231,6 +2237,11 @@ body {
   border-color: #dfe8f5;
   background: #ffffff;
   box-shadow: 0 12px 30px rgba(12, 34, 68, 0.045);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
 }
 
 .sale-card-main {
@@ -2331,8 +2342,32 @@ body {
 }
 
 .sale-card.entregue {
-  border-color: #bff0d0;
-  background: linear-gradient(135deg, #f4fff7, #ffffff);
+  border-color: #72d990;
+  background:
+    linear-gradient(135deg, rgba(226, 255, 235, 0.95), #ffffff 46%),
+    linear-gradient(90deg, rgba(36, 184, 91, 0.16), transparent 34%);
+  box-shadow: 0 14px 34px rgba(36, 184, 91, 0.11);
+}
+
+.sale-card.entregue .sale-id {
+  color: #158044;
+}
+
+.sale-card.entregue .sale-summary-row strong {
+  background: #dcfce7;
+  border-color: #a7efbd;
+  color: #145a32;
+}
+
+.sale-card.entregue .sale-items-list {
+  border-color: #b9efc8;
+  background: rgba(250, 255, 251, 0.86);
+}
+
+.sale-card.entregue .sale-payments-list span {
+  background: #e9fff0;
+  border-color: #bff3cf;
+  color: #217447;
 }
 
 .sale-card.cancelada {
@@ -2366,10 +2401,11 @@ body {
 .sale-summary-row strong {
   border: 1px solid #e2e9f5;
   border-radius: 999px;
-  padding: 5px 9px;
+  padding: 6px 10px;
   background: #f8fbff;
   color: #65738f;
   font-size: 13px;
+  font-weight: 800;
 }
 
 .sale-summary-row strong {
@@ -2521,8 +2557,39 @@ body {
 }
 
 .sale-created-note {
+  margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed #e4edf7;
+}
+
+.sale-note-box,
+.sale-alert-note {
+  margin-top: 8px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  line-height: 1.35;
+}
+
+.sale-note-box {
+  border: 1px solid #e3ebf6;
+  background: #f8fbff;
+  color: #52627f;
+}
+
+.sale-alert-note {
+  border: 1px solid #f1d697;
+  background: #fff8e6;
+  color: #a76500;
+  font-weight: 800;
+}
+
+.sale-discount-chip {
+  margin-top: 4px;
+  display: inline-flex;
+  width: fit-content;
+  border-color: #dbe6f4;
+  background: #f7faff;
+  color: #5b6880;
 }
 
 .sale-meta.mini {
