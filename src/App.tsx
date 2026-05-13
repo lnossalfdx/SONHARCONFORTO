@@ -289,9 +289,9 @@ const COMPANY_INFO = {
 const RECEIPT_TERMS = [
   'Garantia de 1 ano, válida somente com este pedido de venda e etiqueta intacta.',
   'Qualquer problema deve ser comunicado diretamente à loja.',
-  'Defeitos só serão atendidos após análise técnica da fábrica (prazo de até 10 dias úteis).',
-  'Não há troca por gosto, conforto ou adaptação.',
-  'Garantia não cobre mau uso: manchas, umidade, mofo, rasgos, odor, queimaduras ou uso em base inadequada.',
+  'Defeitos só serão atendidos após análise técnica da fábrica (prazo de até 30 dias úteis).',
+  'Não há troca por gosto, conforto, adaptação ou arrependimento.', 
+  "Garantia não cobre mau uso: manchas, umidade, mofo, rasgos, odor, queimaduras ou uso em base inadequada.",
   'Até 3 cm de afundamento é considerado normal; acima disso será analisado.',
   'Cliente deve conferir o produto no ato da entrega; após assinar, não há troca por avarias.',
   'Colchão deve ser adequado ao biotipo e o rodízio deve ser feito a cada 15 dias nos 3 primeiros meses e depois uma vez ao mês.',
