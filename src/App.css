@@ -4726,6 +4726,20 @@ textarea:focus {
   background: #f2f6ff;
 }
 
+.search-dropdown button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dropdown-note {
+  margin: 0;
+  padding: 10px 14px;
+  color: #64738f;
+  font-size: 12px;
+  font-weight: 800;
+  border-bottom: 1px solid #edf2f8;
+}
+
 /* Weekly payment modal */
 .weekly-modal-backdrop {
   backdrop-filter: blur(6px);

@@ -350,6 +350,27 @@ const getSaleItemKey = (item: SaleItem, index: number) => item.productId || `cus
 const getSaleItemLabel = (item: SaleItem) =>
   item.productName ?? item.customName ?? item.searchName ?? 'Item personalizado'
 
+const normalizeSearchValue = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+
+const stockMatchesSearch = (stock: StockItem, query: string) => {
+  const normalizedQuery = normalizeSearchValue(query)
+  if (!normalizedQuery) return true
+  const normalizedName = normalizeSearchValue(stock.name)
+  const normalizedSku = normalizeSearchValue(stock.sku)
+  const queryDigits = query.replace(/\D/g, '')
+  const stockDigits = `${stock.name} ${stock.sku}`.replace(/\D/g, '')
+  return (
+    normalizedName.includes(normalizedQuery) ||
+    normalizedSku.includes(normalizedQuery) ||
+    (Boolean(queryDigits) && stockDigits.includes(queryDigits))
+  )
+}
+
 const parseSaleCode = (value: string) => {
   const digits = value.replace(/\D/g, '')
   return digits ? Number(digits) : null
@@ -785,6 +806,9 @@ function App() {
 const [saleClientSearch, setSaleClientSearch] = useState('')
 const [clientSearchFocused, setClientSearchFocused] = useState(false)
 const [activeProductSearch, setActiveProductSearch] = useState<number | null>(null)
+const [productSearchResults, setProductSearchResults] = useState<Record<number, StockItem[]>>({})
+const [productSearchLoading, setProductSearchLoading] = useState(false)
+const productSearchRequestRef = useRef(0)
 const saleClientOptions = useMemo(() => {
   const clientQuery = saleClientSearch.trim().toLowerCase()
   if (!clientQuery) return clients
@@ -939,6 +963,51 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     if (authToken) headers.Authorization = `Bearer ${authToken}`
     return headers
   }
+
+  useEffect(() => {
+    if (!authToken || !saleModalOpen || activeProductSearch === null) return
+    const currentItem = saleForm.items[activeProductSearch]
+    const query = currentItem?.searchName?.trim() ?? ''
+    if (query.length < 2) {
+      setProductSearchResults((prev) => ({ ...prev, [activeProductSearch]: [] }))
+      setProductSearchLoading(false)
+      return
+    }
+
+    const requestId = productSearchRequestRef.current + 1
+    productSearchRequestRef.current = requestId
+    const timeoutId = window.setTimeout(() => {
+      const params = new URLSearchParams()
+      params.set('paginated', '1')
+      params.set('limit', '40')
+      params.set('offset', '0')
+      params.set('search', query)
+      setProductSearchLoading(true)
+      fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+        headers: getAuthHeaders(false),
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error('Não foi possível buscar produtos.')
+          }
+          return response.json()
+        })
+        .then((payload) => {
+          if (productSearchRequestRef.current !== requestId) return
+          const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
+          const normalized = data.map((item: any) => normalizeStockItem(item))
+          setProductSearchResults((prev) => ({ ...prev, [activeProductSearch]: normalized }))
+        })
+        .catch((error) => console.error(error))
+        .finally(() => {
+          if (productSearchRequestRef.current === requestId) {
+            setProductSearchLoading(false)
+          }
+        })
+    }, 180)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [authToken, saleModalOpen, activeProductSearch, saleForm.items])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return
@@ -6598,11 +6667,16 @@ const focusInventoryPanel = (productId?: string) => {
                   const product = !isCustomItem ? stockItems.find((stock) => stock.id === item.productId) : null
                   const reservedAmount = !isCustomItem ? reservedByEditingSale(item.productId) : 0
                   const availableQuantity = product ? product.quantity + reservedAmount : null
-                  const query = (item.searchName ?? '').toLowerCase()
-                  const filteredProducts = query
-                    ? stockItems.filter((stock) => `${stock.name} ${stock.sku}`.toLowerCase().includes(query))
-                    : stockItems
-                  const suggestions = filteredProducts.slice(0, 6)
+                  const query = item.searchName ?? ''
+                  const remoteProducts = productSearchResults[index] ?? []
+                  const mergedProducts = [...remoteProducts, ...stockItems].reduce<StockItem[]>((acc, stock) => {
+                    if (!acc.some((item) => item.id === stock.id)) acc.push(stock)
+                    return acc
+                  }, [])
+                  const filteredProducts = query.trim()
+                    ? mergedProducts.filter((stock) => stockMatchesSearch(stock, query))
+                    : mergedProducts
+                  const suggestions = filteredProducts.slice(0, 12)
                   const selectStock = (stock: StockItem) => {
                     updateSaleItemRow(index, {
                       productId: stock.id,
@@ -6670,6 +6744,9 @@ const focusInventoryPanel = (productId?: string) => {
                               />
                               {activeProductSearch === index && (
                                 <div className="search-dropdown">
+                                  {productSearchLoading && activeProductSearch === index && (
+                                    <p className="dropdown-note">Buscando no estoque...</p>
+                                  )}
                                   {suggestions.length ? (
                                     suggestions.map((stock) => {
                                       const suggestionReserved = reservedByEditingSale(stock.id)
@@ -6690,7 +6767,7 @@ const focusInventoryPanel = (productId?: string) => {
                                       )
                                     })
                                   ) : (
-                                    <p className="empty-state">Nenhum produto encontrado.</p>
+                                    <p className="empty-state">Nenhum produto encontrado. Tente por medida, SKU ou número.</p>
                                   )}
                                 </div>
                               )}

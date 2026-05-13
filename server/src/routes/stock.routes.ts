@@ -56,8 +56,17 @@ router.get('/', authMiddleware, async (request, response) => {
     query = query.range(safeOffset, safeOffset + safeLimit - 1)
   }
   if (normalizedSearch) {
-    const pattern = `%${normalizedSearch}%`
-    query = query.or(`name.ilike.${pattern},sku.ilike.${pattern}`)
+    const compactDigits = normalizedSearch.replace(/\D/g, '')
+    const escapedSearch = normalizedSearch.replace(/[%_,]/g, '')
+    const filters = [`name.ilike.%${escapedSearch}%`, `sku.ilike.%${escapedSearch}%`]
+    if (compactDigits.length >= 2 && compactDigits !== escapedSearch) {
+      filters.push(`name.ilike.%${compactDigits}%`, `sku.ilike.%${compactDigits}%`)
+    }
+    if (compactDigits.length >= 3) {
+      const looseDigits = compactDigits.split('').join('%')
+      filters.push(`name.ilike.%${looseDigits}%`, `sku.ilike.%${looseDigits}%`)
+    }
+    query = query.or(filters.join(','))
   }
   if (filter === 'low') {
     query = query.lte('quantity', 3)
