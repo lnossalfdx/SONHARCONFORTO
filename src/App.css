@@ -2823,6 +2823,13 @@ body {
   gap: 20px;
 }
 
+.stock-hero {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(90, 169, 244, 0.16), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.96));
+}
+
 .stock-hero-top {
   display: flex;
   justify-content: space-between;
@@ -2842,15 +2849,19 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
-  margin: 18px 0 12px;
+  margin: 20px 0 16px;
 }
 
 .stock-highlight-card {
-  border: 1px solid #dfe6f2;
-  border-radius: 16px;
-  padding: 16px;
-  background: linear-gradient(135deg, #fafdff 0%, #eef5ff 70%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  min-height: 142px;
+  border: 1px solid #d9e7f8;
+  border-radius: 20px;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(233, 244, 255, 0.92) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 16px 36px rgba(18, 55, 99, 0.07);
 }
 
 .stock-highlight-card p {
@@ -2876,15 +2887,66 @@ body {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin: 8px 0 20px;
+  margin: 0;
 }
 
 .stock-search-row input {
   flex: 1 1 280px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  min-height: 56px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  border: 1px solid #d8e5f5;
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(14, 32, 57, 0.04);
+  font-size: 16px;
+}
+
+.stock-catalog-tools {
+  margin: 18px 0 20px;
+  padding: 16px;
+  border: 1px solid #dfe9f6;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 18px 44px rgba(13, 36, 71, 0.06);
+}
+
+.stock-catalog-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 14px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.stock-price-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 210px));
+  gap: 10px;
+}
+
+.stock-price-filters label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.stock-price-filters input {
+  width: 100%;
+  min-height: 42px;
   border: 1px solid #dfe6f2;
-  font-size: 15px;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
 }
 
 .stock-explorer-search {
@@ -2938,7 +3000,7 @@ body {
 
 .stock-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
   gap: 16px;
 }
 
@@ -2949,17 +3011,25 @@ body {
 }
 
 .stock-card {
-  border: 1px solid #e1e9f5;
-  border-radius: 18px;
-  padding: 12px;
+  border: 1px solid #dce8f6;
+  border-radius: 22px;
+  padding: 10px;
   background: #ffffff;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 10px 20px rgba(13, 36, 71, 0.04);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 18px 40px rgba(13, 36, 71, 0.07);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stock-card:hover {
+  transform: translateY(-2px);
+  border-color: #bdd9fb;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 24px 52px rgba(13, 36, 71, 0.12);
 }
 
 .stock-card.selected {
@@ -2971,14 +3041,16 @@ body {
 
 .stock-card-summary {
   border: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(239, 247, 255, 0.92));
-  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(237, 246, 255, 0.96));
+  border-radius: 17px;
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 12px 14px;
   width: 100%;
   text-align: left;
-  padding: 2px;
+  min-height: 160px;
+  padding: 12px;
   cursor: pointer;
   font: inherit;
   color: inherit;
@@ -2986,11 +3058,12 @@ body {
 
 .stock-card-summary img {
   grid-row: span 2;
-  width: 62px;
-  height: 62px;
-  border-radius: 13px;
-  object-fit: cover;
-  background: #edf4fc;
+  width: 76px;
+  height: 100%;
+  min-height: 108px;
+  border-radius: 16px;
+  object-fit: contain;
+  background: #ffffff;
   border: 1px solid #e1e9f5;
 }
 
@@ -3004,12 +3077,14 @@ body {
 }
 
 .stock-card-summary p {
-  margin: 0;
+  margin: 2px 0 6px;
   font-weight: 700;
+  font-size: 16px;
+  line-height: 1.32;
 }
 
 .stock-card-summary span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -3019,6 +3094,7 @@ body {
   flex-wrap: wrap;
   justify-content: flex-start;
   grid-column: 2;
+  align-self: end;
 }
 
 .chip.highlight {
@@ -3181,12 +3257,6 @@ body {
 
 .stock-movement .hero-sub {
   margin-bottom: 18px;
-}
-
-.stock-product-modal {
-  width: min(1080px, calc(100vw - 40px));
-  max-height: min(920px, calc(100vh - 32px));
-  overflow: auto;
 }
 
 .stock-product-modal-head h2 {
@@ -3808,6 +3878,100 @@ body {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
   padding: 18px 20px;
   animation: modal-pop 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.modal.stock-product-modal {
+  width: min(1240px, calc(100vw - 48px));
+  max-height: min(920px, calc(100vh - 40px));
+  overflow: auto;
+  border-radius: 30px;
+  padding: 28px;
+  border-color: #cfdef2;
+  background:
+    radial-gradient(circle at 10% 4%, rgba(58, 149, 233, 0.12), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  box-shadow:
+    0 34px 100px rgba(7, 20, 42, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.modal.stock-product-modal .stock-product-modal-head {
+  align-items: start;
+  gap: 22px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e4edf8;
+}
+
+.modal.stock-product-modal .stock-product-modal-head > div {
+  min-width: 0;
+}
+
+.modal.stock-product-modal .stock-product-modal-head h2 {
+  margin-top: 4px;
+  max-width: 920px;
+  font-size: clamp(28px, 2.7vw, 44px);
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+.modal.stock-product-modal .stock-product-overview {
+  grid-template-columns: 168px minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  padding: 20px;
+}
+
+.modal.stock-product-modal .stock-product-overview > img {
+  grid-row: span 2;
+  min-height: 230px;
+  aspect-ratio: 4 / 5;
+}
+
+.modal.stock-product-modal .stock-product-overview .stock-detail-grid {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  align-content: start;
+  gap: 12px;
+}
+
+.modal.stock-product-modal .stock-product-overview .stock-detail-grid > div {
+  padding: 14px;
+  border: 1px solid #e1ebf7;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.modal.stock-product-modal .stock-product-overview .stock-detail-actions {
+  grid-column: 2;
+  align-self: end;
+}
+
+.modal.stock-product-modal .stock-product-workbench {
+  grid-template-columns: minmax(360px, 1.08fr) minmax(250px, 0.72fr);
+  align-items: stretch;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.modal.stock-product-modal .stock-quick-movement,
+.modal.stock-product-modal .stock-product-recent {
+  min-height: 100%;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 42px rgba(13, 36, 71, 0.07);
+}
+
+@media (max-width: 1100px) {
+  .modal.stock-product-modal {
+    width: min(920px, calc(100vw - 30px));
+    padding: 22px;
+  }
+
+  .modal.stock-product-modal .stock-product-modal-grid,
+  .modal.stock-product-modal .stock-product-workbench {
+    grid-template-columns: 1fr;
+  }
 }
 
 .profile-modal {

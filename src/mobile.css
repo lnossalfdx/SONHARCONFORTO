@@ -550,13 +550,25 @@
     padding: 18px;
   }
 
-  .stock-product-modal {
+  .modal.stock-product-modal {
     width: calc(100vw - 18px);
     padding: 18px;
   }
 
-  .stock-product-modal-head h2 {
+  .modal.stock-product-modal .stock-product-modal-head h2 {
     font-size: 22px;
+  }
+
+  .modal.stock-product-modal .stock-product-overview,
+  .modal.stock-product-modal .stock-product-overview .stock-detail-grid,
+  .modal.stock-product-modal .stock-product-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .modal.stock-product-modal .stock-product-overview > img,
+  .modal.stock-product-modal .stock-product-overview .stock-detail-actions {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .inventory-product-field {

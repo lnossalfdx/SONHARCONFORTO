@@ -5040,7 +5040,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
 
   const renderStock = () => {
     const pagedStock = stockPageItems
-    const stockSummarySource = stockItems.length ? stockItems : stockPageItems
+    const stockSummarySource = stockPageItems.length ? stockPageItems : stockItems
     const totalAvailable = stockSummarySource.reduce((sum, item) => sum + item.quantity, 0)
     const totalReserved = stockSummarySource.reduce((sum, item) => sum + item.reserved, 0)
     const totalStockValue = stockSummarySource.reduce((sum, item) => sum + item.price * item.quantity, 0)
@@ -5060,82 +5060,85 @@ const focusInventoryPanel = (product?: StockItem | string) => {
             <div>
               <p className="eyebrow">Estoque</p>
               <h2>Produtos e inventário</h2>
-              <p className="hero-sub">Pesquise o catálogo, abra um produto e registre preço ou movimentação no mesmo fluxo.</p>
+              <p className="hero-sub">Pesquise o catálogo, abra um produto e resolva movimentação, preço e histórico sem se perder.</p>
             </div>
             <div className="stock-head-actions">
-              <button type="button" className="ghost" onClick={() => focusInventoryPanel()} disabled={!canManageStock}>
+              <button type="button" className="primary" onClick={() => focusInventoryPanel()} disabled={!canManageStock}>
                 Nova entrada
-              </button>
-              <button type="button" className="ghost" onClick={openCreateClientModal}>
-                Cadastrar cliente
               </button>
               <span className="chip ghost">{stockPageTotal} SKUs</span>
             </div>
           </div>
           <div className="stock-highlight-grid">
             <div className="stock-highlight-card">
-              <p>Itens disponíveis</p>
+              <p>Disponível nesta página</p>
               <strong>{totalAvailable}</strong>
               <span>{totalReserved} reservados</span>
             </div>
             <div className="stock-highlight-card">
-              <p>Valor em estoque</p>
+              <p>Valor nesta página</p>
               <strong>{formatCurrency(totalStockValue)}</strong>
               <span>{lowStock} itens com atenção</span>
             </div>
             <div className="stock-highlight-card">
-              <p>Capacidade</p>
+              <p>Movimentações</p>
               <strong>{totalAvailable + totalReserved} unidades</strong>
               <span>{stockMovementsTotal} movimentos registrados</span>
             </div>
           </div>
-          <div className="stock-search-row">
-            <input
-              placeholder="Pesquisar por produto, SKU, medida ou números"
-              value={stockSearch}
-              onChange={(event) => setStockSearch(event.target.value)}
-            />
-            <span className="chip ghost">{stockPageTotal} encontrados</span>
-          </div>
-          <div className="filter-row">
-            <label>
-              Valor mínimo (R$)
+          <div className="stock-catalog-tools">
+            <div className="stock-search-row">
               <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={stockMinValue}
-                onChange={(event) => setStockMinValue(event.target.value)}
+                placeholder="Pesquisar por produto, SKU, medida ou números"
+                value={stockSearch}
+                onChange={(event) => setStockSearch(event.target.value)}
               />
-            </label>
-            <label>
-              Valor máximo (R$)
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={stockMaxValue}
-                onChange={(event) => setStockMaxValue(event.target.value)}
-              />
-            </label>
-          </div>
-          <div className="filter-pills">
-            {(
-              [
-                { id: 'all', label: 'Todos' },
-                { id: 'low', label: 'Baixo estoque' },
-                { id: 'reserved', label: 'Com reserva' },
-              ] as const
-            ).map((filter) => (
-              <button
-                type="button"
-                key={filter.id}
-                className={stockFilter === filter.id ? 'active' : ''}
-                onClick={() => setStockFilter(filter.id)}
-              >
-                {filter.label}
-              </button>
-            ))}
+              <span className="chip ghost">{stockPageTotal} encontrados</span>
+            </div>
+            <div className="stock-catalog-filters">
+              <div className="filter-pills">
+                {(
+                  [
+                    { id: 'all', label: 'Todos' },
+                    { id: 'low', label: 'Baixo estoque' },
+                    { id: 'reserved', label: 'Com reserva' },
+                  ] as const
+                ).map((filter) => (
+                  <button
+                    type="button"
+                    key={filter.id}
+                    className={stockFilter === filter.id ? 'active' : ''}
+                    onClick={() => setStockFilter(filter.id)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <div className="stock-price-filters">
+                <label>
+                  Valor mínimo
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={stockMinValue}
+                    onChange={(event) => setStockMinValue(event.target.value)}
+                    placeholder="R$ 0"
+                  />
+                </label>
+                <label>
+                  Valor máximo
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={stockMaxValue}
+                    onChange={(event) => setStockMaxValue(event.target.value)}
+                    placeholder="Sem limite"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
           <div className="stock-grid">
             {stockPageLoading && <p className="empty-state">Carregando produtos...</p>}
@@ -5148,7 +5151,13 @@ const focusInventoryPanel = (product?: StockItem | string) => {
               pagedStock.map((item) => (
                 <article className="stock-card" key={item.id}>
                   <button type="button" className="stock-card-summary" onClick={() => openStockProductModal(item)}>
-                    <img src={item.imageUrl || customItemPlaceholder} alt="" />
+                    <img
+                      src={item.imageUrl || customItemPlaceholder}
+                      alt=""
+                      onError={(event) => {
+                        event.currentTarget.src = customItemPlaceholder
+                      }}
+                    />
                     <div className="stock-card-copy">
                       <p>{item.name}</p>
                       <span>SKU {item.sku}</span>
@@ -7469,7 +7478,13 @@ const focusInventoryPanel = (product?: StockItem | string) => {
             </div>
             <div className="stock-product-modal-grid">
               <aside className="stock-product-overview">
-                <img src={stockProductModal.imageUrl || customItemPlaceholder} alt={stockProductModal.name} />
+                <img
+                  src={stockProductModal.imageUrl || customItemPlaceholder}
+                  alt={stockProductModal.name}
+                  onError={(event) => {
+                    event.currentTarget.src = customItemPlaceholder
+                  }}
+                />
                 <div className="stock-detail-grid">
                   <div>
                     <span>Disponível</span>
