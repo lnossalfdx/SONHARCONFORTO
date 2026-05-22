@@ -2949,6 +2949,60 @@ body {
   color: var(--text);
 }
 
+.stock-export-bar {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #dbe8f7;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(18, 54, 101, 0.96), rgba(20, 112, 201, 0.92));
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  box-shadow: 0 18px 44px rgba(19, 68, 126, 0.2);
+}
+
+.stock-export-bar > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.stock-export-bar strong {
+  font-size: 15px;
+}
+
+.stock-export-bar span {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 13px;
+}
+
+.stock-export-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stock-export-bar .ghost {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stock-export-bar .primary {
+  background: #ffffff;
+  color: #0c4d92;
+  box-shadow: 0 10px 28px rgba(7, 25, 54, 0.18);
+}
+
+.stock-export-bar button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .stock-explorer-search {
   margin-top: 8px;
 }
@@ -3022,6 +3076,7 @@ body {
   flex-direction: column;
   gap: 10px;
   transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
 }
 
 .stock-card:hover {
@@ -3030,6 +3085,40 @@ body {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     0 24px 52px rgba(13, 36, 71, 0.12);
+}
+
+.stock-card.export-selected {
+  border-color: #67b4fc;
+  box-shadow:
+    inset 0 0 0 1px rgba(76, 164, 247, 0.25),
+    0 20px 46px rgba(13, 73, 141, 0.16);
+}
+
+.stock-card-select {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid #d6e5f7;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #416286;
+  box-shadow: 0 8px 22px rgba(10, 34, 71, 0.09);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.stock-card-select input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #087be8;
 }
 
 .stock-card.selected {
@@ -3069,6 +3158,7 @@ body {
 
 .stock-card-copy {
   min-width: 0;
+  padding-right: 58px;
 }
 
 .stock-card-summary:focus-visible {

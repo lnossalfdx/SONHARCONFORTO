@@ -102,6 +102,38 @@ router.get('/', authMiddleware, async (request, response) => {
   return response.json(payload)
 })
 
+router.get('/summary', authMiddleware, async (_request, response) => {
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('id, quantity, reserved, price')
+
+  if (error) {
+    return response.status(500).json({ message: error.message })
+  }
+
+  const summary = (products ?? []).reduce(
+    (totals, product) => {
+      const quantity = Number(product.quantity ?? 0)
+      const reserved = Number(product.reserved ?? 0)
+      const price = Number(product.price ?? 0)
+      totals.totalAvailable += quantity
+      totals.totalReserved += reserved
+      totals.totalValue += (quantity + reserved) * price
+      if (quantity <= 3) totals.lowStock += 1
+      return totals
+    },
+    {
+      totalProducts: products?.length ?? 0,
+      totalAvailable: 0,
+      totalReserved: 0,
+      totalValue: 0,
+      lowStock: 0,
+    },
+  )
+
+  return response.json(summary)
+})
+
 router.post('/', authMiddleware, roleGuard('admin'), async (request, response) => {
   const payload = productSchema.parse(request.body)
   const { sku, ...rest } = payload

@@ -584,6 +584,26 @@
     height: 52px;
   }
 
+  .stock-price-filters {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .stock-export-actions,
+  .stock-export-actions button {
+    width: 100%;
+  }
+
+  .stock-card-copy {
+    padding-right: 0;
+  }
+
+  .stock-card-select {
+    position: static;
+    align-self: flex-start;
+    margin: 2px 0 4px 2px;
+  }
+
   .stock-quick-movement .primary {
     width: 100%;
     min-width: 0;

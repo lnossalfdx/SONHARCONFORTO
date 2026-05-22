@@ -54,6 +54,14 @@ type StockMovement = {
   createdAt: string
 }
 
+type StockSummary = {
+  totalProducts: number
+  totalAvailable: number
+  totalReserved: number
+  totalValue: number
+  lowStock: number
+}
+
 type SaleItem = {
   productId: string
   productName?: string
@@ -802,6 +810,9 @@ function App() {
   const [stockPageTotal, setStockPageTotal] = useState(0)
   const [stockPageLoading, setStockPageLoading] = useState(false)
   const [stockPageError, setStockPageError] = useState<string | null>(null)
+  const [stockSummary, setStockSummary] = useState<StockSummary | null>(null)
+  const [stockExportSelection, setStockExportSelection] = useState<Record<string, StockItem>>({})
+  const [stockExportLoading, setStockExportLoading] = useState(false)
   const [saleSearch, setSaleSearch] = useState('')
   const [saleFilter, setSaleFilter] = useState<'all' | 'pendente' | 'entregue' | 'cancelada'>('all')
   const [saleDateStart, setSaleDateStart] = useState('')
@@ -1346,6 +1357,40 @@ useEffect(() => {
     }
   }, [authToken, stockSearch, stockFilter, stockMinValue, stockMaxValue, stockPage])
 
+  const fetchStockSummaryFromApi = useCallback(async () => {
+    if (!authToken) return
+    try {
+      const response = await fetch(`${API_BASE_URL}/stock/summary`, {
+        headers: getAuthHeaders(false),
+      })
+      if (!response.ok) throw new Error('Não foi possível carregar o resumo do estoque.')
+      const payload = await response.json()
+      setStockSummary({
+        totalProducts: Number(payload?.totalProducts ?? 0),
+        totalAvailable: Number(payload?.totalAvailable ?? 0),
+        totalReserved: Number(payload?.totalReserved ?? 0),
+        totalValue: Number(payload?.totalValue ?? 0),
+        lowStock: Number(payload?.lowStock ?? 0),
+      })
+    } catch (error) {
+      console.error(error)
+      setStockSummary(null)
+    }
+  }, [authToken])
+
+  const fetchAllStockFromApi = useCallback(async (): Promise<StockItem[]> => {
+    if (!authToken) return []
+    const response = await fetch(`${API_BASE_URL}/stock`, {
+      headers: getAuthHeaders(false),
+    })
+    if (!response.ok) {
+      throw new Error('Não foi possível carregar os itens para exportar.')
+    }
+    const payload = await response.json()
+    const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
+    return data.map((item: any) => normalizeStockItem(item))
+  }, [authToken])
+
   useEffect(() => {
     if (!authToken || !inventoryPanelOpen || inventoryForm.isNewProduct) {
       inventoryProductSearchRequestRef.current += 1
@@ -1674,6 +1719,7 @@ useEffect(() => {
       setStockPageItems([])
       setStockPageTotal(0)
       setStockPageError(null)
+      setStockSummary(null)
       stockPageFetchKeyRef.current = null
       return
     }
@@ -1688,6 +1734,7 @@ useEffect(() => {
     if (stockPageFetchKeyRef.current === fetchKey) return
     stockPageFetchKeyRef.current = fetchKey
     fetchStockPageFromApi()
+    fetchStockSummaryFromApi()
   }, [
     authToken,
     viewingStockPage,
@@ -1697,6 +1744,7 @@ useEffect(() => {
     stockMinValue,
     stockMaxValue,
     fetchStockPageFromApi,
+    fetchStockSummaryFromApi,
   ])
 
   useEffect(() => {
@@ -2171,6 +2219,32 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setStockProductModal(product)
   }
 
+  const toggleStockExportProduct = (product: StockItem) => {
+    setStockExportSelection((prev) => {
+      if (prev[product.id]) {
+        const next = { ...prev }
+        delete next[product.id]
+        return next
+      }
+      return { ...prev, [product.id]: product }
+    })
+  }
+
+  const toggleStockExportPage = () => {
+    const everyPageItemSelected = stockPageItems.length > 0 && stockPageItems.every((item) => stockExportSelection[item.id])
+    setStockExportSelection((prev) => {
+      const next = { ...prev }
+      stockPageItems.forEach((item) => {
+        if (everyPageItemSelected) {
+          delete next[item.id]
+        } else {
+          next[item.id] = item
+        }
+      })
+      return next
+    })
+  }
+
   const handleSelectClientOption = (client: Client) => {
     setSaleForm((prev) => ({ ...prev, clientId: client.id }))
     setSaleClientSearch(client.name)
@@ -2255,6 +2329,8 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       const updated = normalizeStockItem(await response.json())
       setStockItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
       setStockPageItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setStockExportSelection((prev) => (prev[updated.id] ? { ...prev, [updated.id]: updated } : prev))
+      fetchStockSummaryFromApi()
       closeEditProductModal()
     } catch (error) {
       console.error(error)
@@ -2341,6 +2417,129 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       pdf.save(`recibo-${receiptSale.id}.pdf`)
     } finally {
       receiptNode.classList.remove('receipt-export-desktop')
+    }
+  }
+
+  const handleStockPdfExport = async (mode: 'all' | 'selected') => {
+    const selectedProducts = Object.values(stockExportSelection)
+    if (mode === 'selected' && !selectedProducts.length) {
+      window.alert('Marque pelo menos um produto para exportar.')
+      return
+    }
+
+    setStockExportLoading(true)
+    try {
+      const products = mode === 'all' ? await fetchAllStockFromApi() : selectedProducts
+      if (!products.length) {
+        throw new Error('Não há produtos para exportar.')
+      }
+
+      const orderedProducts = [...products].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
+      const exportedValue = orderedProducts.reduce((sum, item) => sum + (item.quantity + item.reserved) * item.price, 0)
+      const exportedUnits = orderedProducts.reduce((sum, item) => sum + item.quantity + item.reserved, 0)
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 12
+      const contentWidth = pageWidth - margin * 2
+      const columns = {
+        sku: 30,
+        quantity: 18,
+        reserved: 20,
+        price: 27,
+        total: 29,
+      }
+      const nameWidth = contentWidth - columns.sku - columns.quantity - columns.reserved - columns.price - columns.total
+      let pageNumber = 1
+      let cursorY = margin
+
+      const renderPageHeader = () => {
+        pdf.setFillColor(19, 43, 83)
+        pdf.roundedRect(margin, cursorY, contentWidth, 28, 3, 3, 'F')
+        pdf.setTextColor(255, 255, 255)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(17)
+        pdf.text('SONHAR CONFORTO', margin + 6, cursorY + 10)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(9)
+        pdf.text(mode === 'all' ? 'Relatorio completo do estoque' : 'Relatorio de itens selecionados', margin + 6, cursorY + 17)
+        pdf.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, margin + 6, cursorY + 23)
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(`${orderedProducts.length} produtos`, pageWidth - margin - 6, cursorY + 11, { align: 'right' })
+        pdf.text(`${exportedUnits} unidades`, pageWidth - margin - 6, cursorY + 17, { align: 'right' })
+        pdf.text(formatCurrency(exportedValue), pageWidth - margin - 6, cursorY + 23, { align: 'right' })
+        cursorY += 34
+
+        pdf.setFillColor(232, 242, 253)
+        pdf.roundedRect(margin, cursorY, contentWidth, 8, 1.5, 1.5, 'F')
+        pdf.setTextColor(32, 55, 86)
+        pdf.setFontSize(7.4)
+        pdf.setFont('helvetica', 'bold')
+        let x = margin + 2
+        pdf.text('PRODUTO', x, cursorY + 5.3)
+        x += nameWidth
+        pdf.text('SKU', x, cursorY + 5.3)
+        x += columns.sku
+        pdf.text('DISP.', x, cursorY + 5.3, { align: 'right' })
+        x += columns.quantity
+        pdf.text('RES.', x, cursorY + 5.3, { align: 'right' })
+        x += columns.reserved
+        pdf.text('VALOR', x, cursorY + 5.3, { align: 'right' })
+        x += columns.price
+        pdf.text('TOTAL', x + columns.total - 2, cursorY + 5.3, { align: 'right' })
+        cursorY += 10
+      }
+
+      const renderFooter = () => {
+        pdf.setDrawColor(220, 230, 242)
+        pdf.line(margin, pageHeight - 10, pageWidth - margin, pageHeight - 10)
+        pdf.setTextColor(112, 128, 154)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setFontSize(8)
+        pdf.text('Estoque Sonhar Conforto', margin, pageHeight - 5)
+        pdf.text(`Pagina ${pageNumber}`, pageWidth - margin, pageHeight - 5, { align: 'right' })
+      }
+
+      renderPageHeader()
+      orderedProducts.forEach((item, index) => {
+        const lines = pdf.splitTextToSize(item.name, nameWidth - 4)
+        const rowHeight = Math.max(11, lines.length * 3.6 + 4)
+        if (cursorY + rowHeight > pageHeight - 16) {
+          renderFooter()
+          pdf.addPage()
+          pageNumber += 1
+          cursorY = margin
+          renderPageHeader()
+        }
+        if (index % 2 === 0) {
+          pdf.setFillColor(248, 251, 255)
+          pdf.roundedRect(margin, cursorY - 1, contentWidth, rowHeight, 1.5, 1.5, 'F')
+        }
+        pdf.setTextColor(18, 31, 50)
+        pdf.setFont('helvetica', 'bold')
+        pdf.setFontSize(8.2)
+        pdf.text(lines, margin + 2, cursorY + 3.5)
+        pdf.setFont('helvetica', 'normal')
+        let x = margin + nameWidth
+        pdf.text(pdf.splitTextToSize(item.sku, columns.sku - 3), x, cursorY + 3.5)
+        x += columns.sku
+        pdf.text(String(item.quantity), x - 2, cursorY + 3.5, { align: 'right' })
+        x += columns.quantity
+        pdf.text(String(item.reserved), x - 2, cursorY + 3.5, { align: 'right' })
+        x += columns.reserved
+        pdf.text(formatCurrency(item.price), x - 2, cursorY + 3.5, { align: 'right' })
+        x += columns.price
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(formatCurrency(item.price * (item.quantity + item.reserved)), x + columns.total - 2, cursorY + 3.5, { align: 'right' })
+        cursorY += rowHeight
+      })
+      renderFooter()
+      pdf.save(mode === 'all' ? 'estoque-sonhar-completo.pdf' : 'estoque-sonhar-selecionados.pdf')
+    } catch (error) {
+      console.error(error)
+      window.alert(error instanceof Error ? error.message : 'Erro ao exportar o estoque.')
+    } finally {
+      setStockExportLoading(false)
     }
   }
 
@@ -2738,8 +2937,14 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         return updated
       })
       setStockPageItems((prev) => prev.filter((item) => item.id !== productId))
+      setStockExportSelection((prev) => {
+        if (!prev[productId]) return prev
+        const next = { ...prev }
+        delete next[productId]
+        return next
+      })
       setStockProductModal((prev) => (prev?.id === productId ? null : prev))
-      await Promise.all([fetchStockPageFromApi(), fetchStockMovementsFromApi()])
+      await Promise.all([fetchStockPageFromApi(), fetchStockMovementsFromApi(), fetchStockSummaryFromApi()])
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao remover produto.')
@@ -3409,7 +3614,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         }
         const createdProduct = normalizeStockItem(await response.json())
         setStockItems((prev) => [createdProduct, ...prev])
-        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi()])
+        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi(), fetchStockSummaryFromApi()])
         resetInventoryForm(createdProduct.id)
       } else {
         if (!inventoryForm.productId) {
@@ -3438,7 +3643,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         if (!response.ok) {
           throw new Error('Não foi possível registrar o movimento.')
         }
-        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi()])
+        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi(), fetchStockSummaryFromApi()])
         resetInventoryForm(inventoryForm.productId)
       }
       setInventoryPanelOpen(false)
@@ -5043,8 +5248,14 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     const stockSummarySource = stockPageItems.length ? stockPageItems : stockItems
     const totalAvailable = stockSummarySource.reduce((sum, item) => sum + item.quantity, 0)
     const totalReserved = stockSummarySource.reduce((sum, item) => sum + item.reserved, 0)
-    const totalStockValue = stockSummarySource.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    const totalStockValue = stockSummarySource.reduce((sum, item) => sum + item.price * (item.quantity + item.reserved), 0)
     const lowStock = stockSummarySource.filter((item) => item.quantity <= 3).length
+    const selectedStockExportCount = Object.keys(stockExportSelection).length
+    const selectedStockExportValue = Object.values(stockExportSelection).reduce(
+      (sum, item) => sum + (item.quantity + item.reserved) * item.price,
+      0,
+    )
+    const pageSelectionComplete = stockPageItems.length > 0 && stockPageItems.every((item) => stockExportSelection[item.id])
     const selectedInventoryProduct =
       stockItems.find((item) => item.id === inventoryForm.productId) ??
       stockPageItems.find((item) => item.id === inventoryForm.productId) ??
@@ -5071,18 +5282,18 @@ const focusInventoryPanel = (product?: StockItem | string) => {
           </div>
           <div className="stock-highlight-grid">
             <div className="stock-highlight-card">
-              <p>Disponível nesta página</p>
-              <strong>{totalAvailable}</strong>
-              <span>{totalReserved} reservados</span>
+              <p>Itens disponíveis</p>
+              <strong>{stockSummary?.totalAvailable ?? totalAvailable}</strong>
+              <span>{stockSummary?.totalReserved ?? totalReserved} reservados no estoque</span>
             </div>
             <div className="stock-highlight-card">
-              <p>Valor nesta página</p>
-              <strong>{formatCurrency(totalStockValue)}</strong>
-              <span>{lowStock} itens com atenção</span>
+              <p>Valor total do estoque</p>
+              <strong>{formatCurrency(stockSummary?.totalValue ?? totalStockValue)}</strong>
+              <span>{stockSummary?.lowStock ?? lowStock} itens com atenção</span>
             </div>
             <div className="stock-highlight-card">
               <p>Movimentações</p>
-              <strong>{totalAvailable + totalReserved} unidades</strong>
+              <strong>{stockSummary?.totalProducts ?? stockPageTotal} SKUs</strong>
               <span>{stockMovementsTotal} movimentos registrados</span>
             </div>
           </div>
@@ -5139,6 +5350,42 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                 </label>
               </div>
             </div>
+            <div className="stock-export-bar">
+              <div>
+                <strong>{selectedStockExportCount} selecionado{selectedStockExportCount === 1 ? '' : 's'}</strong>
+                <span>
+                  {selectedStockExportCount
+                    ? `${formatCurrency(selectedStockExportValue)} no PDF selecionado`
+                    : 'Marque produtos nos cards para exportar só alguns.'}
+                </span>
+              </div>
+              <div className="stock-export-actions">
+                <button type="button" className="ghost" onClick={toggleStockExportPage}>
+                  {pageSelectionComplete ? 'Desmarcar página' : 'Selecionar página'}
+                </button>
+                {selectedStockExportCount > 0 && (
+                  <button type="button" className="ghost" onClick={() => setStockExportSelection({})}>
+                    Limpar seleção
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => handleStockPdfExport('selected')}
+                  disabled={!selectedStockExportCount || stockExportLoading}
+                >
+                  PDF selecionados
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => handleStockPdfExport('all')}
+                  disabled={stockExportLoading}
+                >
+                  {stockExportLoading ? 'Gerando PDF...' : 'PDF estoque completo'}
+                </button>
+              </div>
+            </div>
           </div>
           <div className="stock-grid">
             {stockPageLoading && <p className="empty-state">Carregando produtos...</p>}
@@ -5149,7 +5396,15 @@ const focusInventoryPanel = (product?: StockItem | string) => {
             {!stockPageLoading &&
               !stockPageError &&
               pagedStock.map((item) => (
-                <article className="stock-card" key={item.id}>
+                <article className={`stock-card ${stockExportSelection[item.id] ? 'export-selected' : ''}`} key={item.id}>
+                  <label className="stock-card-select" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(stockExportSelection[item.id])}
+                      onChange={() => toggleStockExportProduct(item)}
+                    />
+                    PDF
+                  </label>
                   <button type="button" className="stock-card-summary" onClick={() => openStockProductModal(item)}>
                     <img
                       src={item.imageUrl || customItemPlaceholder}
