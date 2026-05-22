@@ -755,14 +755,16 @@ function App() {
   const [inventoryPanelOpen, setInventoryPanelOpen] = useState(false)
   const [inventorySubmitLoading, setInventorySubmitLoading] = useState(false)
   const [inventorySubmitError, setInventorySubmitError] = useState<string | null>(null)
-  const [stockExploreTerm, setStockExploreTerm] = useState('')
+  const [inventoryProductSearch, setInventoryProductSearch] = useState('')
+  const [inventoryProductOptions, setInventoryProductOptions] = useState<StockItem[]>([])
+  const [inventoryProductSearchLoading, setInventoryProductSearchLoading] = useState(false)
+  const inventoryProductSearchRequestRef = useRef(0)
   const needsStockItems =
     viewingDashboard ||
     viewingSleepLab ||
     viewingAssistances ||
     saleModalOpen ||
-    inventoryPanelOpen ||
-    stockExploreTerm.trim().length > 0
+    inventoryPanelOpen
   const needsStockMovements = viewingStockPage
   const emptyClientForm = {
     name: '',
@@ -1289,7 +1291,7 @@ useEffect(() => {
         if (prev.isNewProduct || normalized.length === 0) {
           return { ...prev, productId: normalized[0]?.id ?? '' }
         }
-        if (normalized.some((item) => item.id === prev.productId)) {
+        if (prev.productId) {
           return prev
         }
         return { ...prev, productId: normalized[0]?.id ?? '' }
@@ -1343,6 +1345,57 @@ useEffect(() => {
       setStockPageLoading(false)
     }
   }, [authToken, stockSearch, stockFilter, stockMinValue, stockMaxValue, stockPage])
+
+  useEffect(() => {
+    if (!authToken || !inventoryPanelOpen || inventoryForm.isNewProduct) {
+      inventoryProductSearchRequestRef.current += 1
+      setInventoryProductSearchLoading(false)
+      setInventoryProductOptions([])
+      return
+    }
+
+    const fallbackOptions = [...stockPageItems, ...stockItems].filter(
+      (item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index,
+    )
+    const normalizedSearch = inventoryProductSearch.trim()
+    if (!normalizedSearch) {
+      inventoryProductSearchRequestRef.current += 1
+      setInventoryProductSearchLoading(false)
+      setInventoryProductOptions(fallbackOptions.slice(0, ITEMS_PER_PAGE))
+      return
+    }
+
+    const requestId = ++inventoryProductSearchRequestRef.current
+    setInventoryProductSearchLoading(true)
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams()
+        params.set('paginated', '1')
+        params.set('limit', ITEMS_PER_PAGE.toString())
+        params.set('offset', '0')
+        params.set('search', normalizedSearch)
+        const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+          headers: getAuthHeaders(false),
+        })
+        if (!response.ok) throw new Error('Não foi possível pesquisar produtos.')
+        const payload = await response.json()
+        const data = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []
+        if (requestId !== inventoryProductSearchRequestRef.current) return
+        setInventoryProductOptions(data.map((item: any) => normalizeStockItem(item)))
+      } catch (error) {
+        console.error(error)
+        if (requestId === inventoryProductSearchRequestRef.current) {
+          setInventoryProductOptions([])
+        }
+      } finally {
+        if (requestId === inventoryProductSearchRequestRef.current) {
+          setInventoryProductSearchLoading(false)
+        }
+      }
+    }, 180)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [authToken, inventoryForm.isNewProduct, inventoryPanelOpen, inventoryProductSearch, stockItems, stockPageItems])
 
   const fetchStockByIdsFromApi = useCallback(async (productIds: string[]): Promise<StockItem[]> => {
     if (!authToken) return []
@@ -2055,7 +2108,14 @@ const [editProductForm, setEditProductForm] = useState({ price: '', factoryCost:
 const [editProductPreview, setEditProductPreview] = useState('')
 const [editProductLoading, setEditProductLoading] = useState(false)
 const [editProductError, setEditProductError] = useState<string | null>(null)
-const [expandedStockId, setExpandedStockId] = useState<string | null>(null)
+const [stockProductModal, setStockProductModal] = useState<StockItem | null>(null)
+
+  const mergeKnownStockItem = (product: StockItem) => {
+    setStockItems((prev) => {
+      const exists = prev.some((item) => item.id === product.id)
+      return exists ? prev.map((item) => (item.id === product.id ? product : item)) : [product, ...prev]
+    })
+  }
 
   const resetInventoryForm = (preferredProductId?: string) => {
     setInventoryForm(createInventoryFormState(preferredProductId ?? (stockItems[0]?.id ?? '')))
@@ -2066,11 +2126,28 @@ const [expandedStockId, setExpandedStockId] = useState<string | null>(null)
     setReceiptModalOpen(true)
   }
 
-const focusInventoryPanel = (productId?: string) => {
+const selectInventoryProduct = (product: StockItem) => {
+    mergeKnownStockItem(product)
+    setInventoryProductSearch(product.name)
+    setInventoryForm((prev) => ({
+      ...prev,
+      productId: product.id,
+      isNewProduct: false,
+    }))
+  }
+
+const focusInventoryPanel = (product?: StockItem | string) => {
   if (!canManageStock) return
+    const selectedProduct =
+      typeof product === 'string'
+        ? stockItems.find((item) => item.id === product) ?? stockPageItems.find((item) => item.id === product)
+        : product
+    if (selectedProduct) {
+      selectInventoryProduct(selectedProduct)
+    }
     setInventoryPanelOpen(true)
     setInventoryForm((prev) => {
-      if (!stockItems.length) {
+      if (!stockItems.length && !stockPageItems.length && !selectedProduct) {
         return {
           ...createInventoryFormState(''),
           isNewProduct: true,
@@ -2079,7 +2156,7 @@ const focusInventoryPanel = (productId?: string) => {
       }
       return {
         ...prev,
-        productId: productId ?? prev.productId ?? stockItems[0]?.id ?? '',
+        productId: selectedProduct?.id ?? prev.productId ?? stockItems[0]?.id ?? stockPageItems[0]?.id ?? '',
         isNewProduct: false,
       }
     })
@@ -2088,8 +2165,10 @@ const focusInventoryPanel = (productId?: string) => {
     })
   }
 
-  const toggleStockCard = (productId: string) => {
-    setExpandedStockId((prev) => (prev === productId ? null : productId))
+  const openStockProductModal = (product: StockItem) => {
+    selectInventoryProduct(product)
+    setInventorySubmitError(null)
+    setStockProductModal(product)
   }
 
   const handleSelectClientOption = (client: Client) => {
@@ -2619,7 +2698,10 @@ const focusInventoryPanel = (productId?: string) => {
   const handleDeleteProduct = async (productId: string) => {
     if (!canManageStock || !authToken) return
     if (!productId) return
-    const product = stockItems.find((item) => item.id === productId)
+    const product =
+      stockItems.find((item) => item.id === productId) ??
+      stockPageItems.find((item) => item.id === productId) ??
+      (stockProductModal?.id === productId ? stockProductModal : null)
     if (!product) return
     if (product.quantity > 0 || product.reserved > 0) {
       window.alert('Só é possível remover produtos com estoque zerado.')
@@ -2655,7 +2737,9 @@ const focusInventoryPanel = (productId?: string) => {
         })
         return updated
       })
-      await fetchStockMovementsFromApi()
+      setStockPageItems((prev) => prev.filter((item) => item.id !== productId))
+      setStockProductModal((prev) => (prev?.id === productId ? null : prev))
+      await Promise.all([fetchStockPageFromApi(), fetchStockMovementsFromApi()])
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao remover produto.')
@@ -3325,14 +3409,17 @@ const focusInventoryPanel = (productId?: string) => {
         }
         const createdProduct = normalizeStockItem(await response.json())
         setStockItems((prev) => [createdProduct, ...prev])
-        await fetchStockFromApi(stockCacheKey)
-        await fetchStockMovementsFromApi()
+        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi()])
         resetInventoryForm(createdProduct.id)
       } else {
         if (!inventoryForm.productId) {
           throw new Error('Selecione um produto para movimentar.')
         }
-        const product = stockItems.find((item) => item.id === inventoryForm.productId)
+        const product =
+          stockItems.find((item) => item.id === inventoryForm.productId) ??
+          stockPageItems.find((item) => item.id === inventoryForm.productId) ??
+          (stockProductModal?.id === inventoryForm.productId ? stockProductModal : null) ??
+          inventoryProductOptions.find((item) => item.id === inventoryForm.productId)
         if (!product) {
           throw new Error('Produto inválido.')
         }
@@ -3351,11 +3438,11 @@ const focusInventoryPanel = (productId?: string) => {
         if (!response.ok) {
           throw new Error('Não foi possível registrar o movimento.')
         }
-        await fetchStockFromApi(stockCacheKey)
-        await fetchStockMovementsFromApi()
+        await Promise.all([fetchStockFromApi(stockCacheKey), fetchStockPageFromApi(), fetchStockMovementsFromApi()])
         resetInventoryForm(inventoryForm.productId)
       }
       setInventoryPanelOpen(false)
+      setStockProductModal(null)
     } catch (error) {
       console.error(error)
       setInventorySubmitError(error instanceof Error ? error.message : 'Erro ao registrar movimento.')
@@ -4958,90 +5045,26 @@ const focusInventoryPanel = (productId?: string) => {
     const totalReserved = stockSummarySource.reduce((sum, item) => sum + item.reserved, 0)
     const totalStockValue = stockSummarySource.reduce((sum, item) => sum + item.price * item.quantity, 0)
     const lowStock = stockSummarySource.filter((item) => item.quantity <= 3).length
-    const selectedInventoryProduct = stockItems.find((item) => item.id === inventoryForm.productId)
-    const normalizedExplore = stockExploreTerm.trim().toLowerCase()
-    const stockSearchResults = normalizedExplore
-      ? [
-          ...stockItems
-            .filter((item) => `${item.name} ${item.sku}`.toLowerCase().includes(normalizedExplore))
-            .map((item) => ({
-              id: `prod-${item.id}`,
-              type: 'Produto',
-              title: item.name,
-              subtitle: `SKU ${item.sku} · ${item.quantity} disponíveis`,
-              action: () => focusInventoryPanel(item.id),
-            })),
-          ...stockMovements
-            .filter((movement) => {
-              const product = stockItems.find((item) => item.id === movement.productId)
-              const blob = `${product?.name ?? movement.productName ?? ''} ${movement.note}`.toLowerCase()
-              return blob.includes(normalizedExplore)
-            })
-            .map((movement) => {
-              const product = stockItems.find((item) => item.id === movement.productId)
-              return {
-                id: movement.id,
-                type: movement.type === 'entrada' ? 'Entrada' : 'Saída',
-                title: product?.name ?? movement.productName ?? 'Produto removido',
-                subtitle: `${movement.amount} unidades · ${new Date(movement.createdAt).toLocaleDateString('pt-BR')}`,
-                action: () => setStockExploreTerm(''),
-              }
-            }),
-        ]
-      : []
+    const selectedInventoryProduct =
+      stockItems.find((item) => item.id === inventoryForm.productId) ??
+      stockPageItems.find((item) => item.id === inventoryForm.productId) ??
+      inventoryProductOptions.find((item) => item.id === inventoryForm.productId) ??
+      (stockProductModal?.id === inventoryForm.productId ? stockProductModal : null)
 
     const filteredMovements = stockMovements
 
     return (
       <div className="page-stack stock-page">
-        <section className="panel stock-explorer">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow">Estoque</p>
-              <h2>Pesquisar no estoque</h2>
-            </div>
-          </div>
-          <div className="stock-explorer-search">
-            <input
-              placeholder="Buscar por produto, SKU ou movimento"
-              value={stockExploreTerm}
-              onChange={(event) => setStockExploreTerm(event.target.value)}
-            />
-          </div>
-          {stockExploreTerm.trim() ? (
-            <div className="stock-explorer-results">
-              {stockSearchResults.length === 0 && <p className="empty-state">Nada encontrado com esse termo.</p>}
-              {stockSearchResults.map((result) => (
-                <button type="button" key={result.id} onClick={result.action}>
-                  <span className="result-type">{result.type}</span>
-                  <div>
-                    <p className="result-title">{result.title}</p>
-                    <p className="result-description">{result.subtitle}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="field-note">Pesquise rapidamente por produtos, SKUs e movimentações recentes.</p>
-          )}
-        </section>
-
         <section className="panel stock-hero">
           <div className="stock-hero-top">
             <div>
               <p className="eyebrow">Estoque</p>
-              <h2>Visão geral</h2>
-              <p className="hero-sub">Capacidade, valor e status dos produtos da loja.</p>
+              <h2>Produtos e inventário</h2>
+              <p className="hero-sub">Pesquise o catálogo, abra um produto e registre preço ou movimentação no mesmo fluxo.</p>
             </div>
             <div className="stock-head-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => focusInventoryPanel()}
-                disabled={!canManageStock}
-                title={canManageStock ? 'Registrar entrada/saída' : 'Disponível apenas para administradores'}
-              >
-                Registrar movimento
+              <button type="button" className="ghost" onClick={() => focusInventoryPanel()} disabled={!canManageStock}>
+                Nova entrada
               </button>
               <button type="button" className="ghost" onClick={openCreateClientModal}>
                 Cadastrar cliente
@@ -5068,7 +5091,7 @@ const focusInventoryPanel = (productId?: string) => {
           </div>
           <div className="stock-search-row">
             <input
-              placeholder="Buscar produto ou SKU"
+              placeholder="Pesquisar por produto, SKU, medida ou números"
               value={stockSearch}
               onChange={(event) => setStockSearch(event.target.value)}
             />
@@ -5122,112 +5145,26 @@ const focusInventoryPanel = (productId?: string) => {
             )}
             {!stockPageLoading &&
               !stockPageError &&
-              pagedStock.map((item) => {
-                const isExpanded = expandedStockId === item.id
-                return (
-                  <div className={`stock-card ${isExpanded ? 'expanded' : ''}`} key={item.id}>
-                    <button type="button" className="stock-card-summary" onClick={() => toggleStockCard(item.id)}>
-                      <div>
-                        <p>{item.name}</p>
-                        <span>{item.sku}</span>
-                      </div>
-                      <div className="summary-badges">
-                        <span className="chip ghost">Disp. {item.quantity}</span>
-                        <span className="chip ghost">Res. {item.reserved}</span>
-                        <span className="chip highlight">{formatCurrency(item.price)}</span>
-                      </div>
-                    </button>
-                  </div>
-                )
-              })}
+              pagedStock.map((item) => (
+                <article className="stock-card" key={item.id}>
+                  <button type="button" className="stock-card-summary" onClick={() => openStockProductModal(item)}>
+                    <img src={item.imageUrl || customItemPlaceholder} alt="" />
+                    <div className="stock-card-copy">
+                      <p>{item.name}</p>
+                      <span>SKU {item.sku}</span>
+                    </div>
+                    <div className="summary-badges">
+                      <span className="chip ghost">Disp. {item.quantity}</span>
+                      <span className="chip ghost">Res. {item.reserved}</span>
+                      <span className="chip highlight">{formatCurrency(item.price)}</span>
+                    </div>
+                  </button>
+                </article>
+              ))}
           </div>
           {!stockPageLoading &&
             !stockPageError &&
             renderPagination(stockPageTotal, stockPage, setStockPage)}
-          {expandedStockId && (
-            <div className="stock-detail-panel">
-              {(() => {
-                const product =
-                  stockItems.find((item) => item.id === expandedStockId) ??
-                  stockPageItems.find((item) => item.id === expandedStockId) ??
-                  stockItems[0]
-                if (!product) return null
-                const totalUnits = product.quantity + product.reserved
-                const reservedPercent = totalUnits ? Math.round((product.reserved / totalUnits) * 100) : 0
-                const hasHistory = stockMovements.some((movement) => movement.productId === product.id)
-                return (
-                  <>
-                    <div className="stock-detail-head">
-                      <div className="stock-detail-thumb">
-                        <img src={product.imageUrl || customItemPlaceholder} alt={product.name} />
-                        {isAdmin && (
-                          <button type="button" className="ghost tiny" onClick={() => openEditProductModal(product)}>
-                            Editar produto
-                          </button>
-                        )}
-                      </div>
-                      <div className="stock-detail-meta">
-                        <h4>{product.name}</h4>
-                        <p>SKU {product.sku}</p>
-                        <div className="stock-detail-tags">
-                          <span className="chip ghost">Disponível {product.quantity}</span>
-                          <span className="chip ghost">Reservado {product.reserved}</span>
-                          <span className="chip highlight">{formatCurrency(product.price)}</span>
-                        </div>
-                        <div className="stock-detail-actions">
-                          <button
-                            type="button"
-                            className="ghost"
-                            onClick={() => focusInventoryPanel(product.id)}
-                            disabled={!canManageStock}
-                          >
-                            Movimentar
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost danger"
-                            onClick={() => handleDeleteProduct(product.id)}
-                            disabled={product.quantity > 0 || product.reserved > 0 || !canManageStock}
-                          >
-                            Remover
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="stock-detail-grid">
-                      <div>
-                        <span>Valor unitário</span>
-                        <strong>{formatCurrency(product.price)}</strong>
-                      </div>
-                      {isAdmin && (
-                        <div>
-                          <span>Custo fábrica</span>
-                          <strong>
-                            {product.factoryCost !== undefined ? formatCurrency(product.factoryCost) : '—'}
-                          </strong>
-                        </div>
-                      )}
-                      <div>
-                        <span>Estoque estimado</span>
-                        <strong>{formatCurrency(product.price * product.quantity)}</strong>
-                      </div>
-                      <div>
-                        <span>Status</span>
-                        <strong>{hasHistory ? 'Com movimentações recentes' : 'Sem movimentos'}</strong>
-                      </div>
-                    </div>
-                    <div className="stock-detail-meter">
-                      <span>Reservado</span>
-                      <div className="meter">
-                        <span style={{ width: `${reservedPercent}%` }} />
-                      </div>
-                      <small>{reservedPercent}% reservado</small>
-                    </div>
-                  </>
-                )
-              })()}
-            </div>
-          )}
        </section>
 
         <section className="panel stock-movement" ref={inventoryPanelRef}>
@@ -5347,21 +5284,34 @@ const focusInventoryPanel = (productId?: string) => {
                           </label>
                         </>
                       ) : (
-                      <label>
-                        Produto
-                        <select
-                          value={inventoryForm.productId}
-                          onChange={(event) =>
-                            setInventoryForm((prev) => ({ ...prev, productId: event.target.value }))
-                          }
-                        >
-                          {!stockItems.length && <option value="">Nenhum produto cadastrado</option>}
-                          {stockItems.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                          </select>
+                        <label className="inventory-product-field">
+                          Produto
+                          <input
+                            value={inventoryProductSearch}
+                            onChange={(event) => {
+                              setInventoryProductSearch(event.target.value)
+                              setInventoryForm((prev) => ({ ...prev, productId: '' }))
+                            }}
+                            placeholder="Digite nome, SKU ou medida para pesquisar"
+                          />
+                          <div className="inventory-product-results">
+                            {inventoryProductSearchLoading && <span>Pesquisando produtos...</span>}
+                            {!inventoryProductSearchLoading && inventoryProductOptions.length === 0 && (
+                              <span>Nenhum produto encontrado. Pesquise outro termo.</span>
+                            )}
+                            {!inventoryProductSearchLoading &&
+                              inventoryProductOptions.map((item) => (
+                                <button
+                                  type="button"
+                                  key={item.id}
+                                  className={inventoryForm.productId === item.id ? 'selected' : ''}
+                                  onClick={() => selectInventoryProduct(item)}
+                                >
+                                  <strong>{item.name}</strong>
+                                  <small>SKU {item.sku} · {item.quantity} disponíveis</small>
+                                </button>
+                              ))}
+                          </div>
                         </label>
                       )}
                       <label>
@@ -5414,7 +5364,7 @@ const focusInventoryPanel = (productId?: string) => {
                       </div>
                     ) : selectedInventoryProduct ? (
                       <div className="preview-card">
-                        <img src={selectedInventoryProduct.imageUrl} alt={selectedInventoryProduct.name} />
+                        <img src={selectedInventoryProduct.imageUrl || customItemPlaceholder} alt={selectedInventoryProduct.name} />
                         <h4>{selectedInventoryProduct.name}</h4>
                         <p className="preview-sku">{selectedInventoryProduct.sku}</p>
                         <div className="preview-metrics">
@@ -5470,8 +5420,7 @@ const focusInventoryPanel = (productId?: string) => {
                     type="submit"
                     disabled={
                       inventorySubmitLoading ||
-                      (!inventoryForm.isNewProduct && !inventoryForm.productId) ||
-                      (!inventoryForm.isNewProduct && stockItems.length === 0)
+                      (!inventoryForm.isNewProduct && !inventoryForm.productId)
                     }
                   >
                     {inventorySubmitLoading
@@ -7501,6 +7450,146 @@ const focusInventoryPanel = (productId?: string) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {stockProductModal && (
+        <div className="modal-backdrop" onClick={() => setStockProductModal(null)}>
+          <div className="modal stock-product-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="section-head stock-product-modal-head">
+              <div>
+                <p className="eyebrow">Produto do estoque</p>
+                <h2>{stockProductModal.name}</h2>
+                <p className="hero-sub">SKU {stockProductModal.sku}</p>
+              </div>
+              <button type="button" className="text-button" onClick={() => setStockProductModal(null)}>
+                Fechar
+              </button>
+            </div>
+            <div className="stock-product-modal-grid">
+              <aside className="stock-product-overview">
+                <img src={stockProductModal.imageUrl || customItemPlaceholder} alt={stockProductModal.name} />
+                <div className="stock-detail-grid">
+                  <div>
+                    <span>Disponível</span>
+                    <strong>{stockProductModal.quantity}</strong>
+                  </div>
+                  <div>
+                    <span>Reservado</span>
+                    <strong>{stockProductModal.reserved}</strong>
+                  </div>
+                  <div>
+                    <span>Preço</span>
+                    <strong>{formatCurrency(stockProductModal.price)}</strong>
+                  </div>
+                  {isAdmin && (
+                    <div>
+                      <span>Custo fábrica</span>
+                      <strong>
+                        {stockProductModal.factoryCost !== undefined
+                          ? formatCurrency(stockProductModal.factoryCost)
+                          : '—'}
+                      </strong>
+                    </div>
+                  )}
+                </div>
+                <div className="stock-detail-actions">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        const product = stockProductModal
+                        setStockProductModal(null)
+                        openEditProductModal(product)
+                      }}
+                    >
+                      Editar preço
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="ghost danger"
+                    onClick={() => handleDeleteProduct(stockProductModal.id)}
+                    disabled={
+                      stockProductModal.quantity > 0 ||
+                      stockProductModal.reserved > 0 ||
+                      !canManageStock
+                    }
+                  >
+                    Remover
+                  </button>
+                </div>
+              </aside>
+              <div className="stock-product-workbench">
+                <form className="stock-quick-movement" onSubmit={handleInventoryMovement}>
+                  <div className="inventory-form-head">
+                    <div>
+                      <p className="form-title">Movimentar este produto</p>
+                      <p className="field-note">Registre entrada ou saída e o histórico aparece logo abaixo.</p>
+                    </div>
+                    <div className="type-switch">
+                      {(['entrada', 'saida'] as StockMovement['type'][]).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          className={inventoryForm.type === type ? 'active' : ''}
+                          onClick={() => setInventoryForm((prev) => ({ ...prev, type, isNewProduct: false }))}
+                        >
+                          {type === 'entrada' ? 'Entrada' : 'Saída'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="stock-quick-grid">
+                    <label>
+                      Quantidade
+                      <input
+                        type="number"
+                        min={1}
+                        value={inventoryForm.amount}
+                        onChange={(event) =>
+                          setInventoryForm((prev) => ({ ...prev, amount: Number(event.target.value) }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Observação
+                      <input
+                        value={inventoryForm.note}
+                        onChange={(event) => setInventoryForm((prev) => ({ ...prev, note: event.target.value }))}
+                        placeholder="Fornecedor, NF ou motivo"
+                      />
+                    </label>
+                  </div>
+                  {inventorySubmitError && <p className="login-error">{inventorySubmitError}</p>}
+                  <button className="primary" type="submit" disabled={inventorySubmitLoading || !canManageStock}>
+                    {inventorySubmitLoading
+                      ? 'Registrando...'
+                      : inventoryForm.type === 'entrada'
+                        ? 'Confirmar entrada'
+                        : 'Confirmar saída'}
+                  </button>
+                </form>
+                <div className="stock-product-recent">
+                  <p className="form-title">Movimentos nesta página</p>
+                  {stockMovements.filter((movement) => movement.productId === stockProductModal.id).length === 0 ? (
+                    <p className="field-note">Nenhum movimento deste produto no filtro atual.</p>
+                  ) : (
+                    stockMovements
+                      .filter((movement) => movement.productId === stockProductModal.id)
+                      .slice(0, 4)
+                      .map((movement) => (
+                        <div className={`movement-card compact ${movement.type}`} key={movement.id}>
+                          <strong>{movement.type === 'entrada' ? 'Entrada' : 'Saída'} de {movement.amount}</strong>
+                          <span>{new Date(movement.createdAt).toLocaleString('pt-BR')}</span>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

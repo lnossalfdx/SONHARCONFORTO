@@ -1755,6 +1755,66 @@ body {
   gap: 12px;
 }
 
+.inventory-product-field {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.inventory-product-results {
+  margin-top: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  max-height: 310px;
+  overflow: auto;
+  border: 1px solid #dfe6f2;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff, #f7fbff);
+  box-shadow: 0 14px 34px rgba(11, 43, 93, 0.08);
+}
+
+.inventory-product-results > span {
+  padding: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inventory-product-results button {
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: #f4f8fd;
+  color: var(--text);
+  padding: 10px 12px;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  font: inherit;
+}
+
+.inventory-product-results button:hover,
+.inventory-product-results button.selected {
+  border-color: #a8d5ff;
+  background: #eaf5ff;
+}
+
+.inventory-product-results strong,
+.inventory-product-results small {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.inventory-product-results strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.inventory-product-results small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .file-field input[type='file'] {
   margin-top: 6px;
   padding: 10px;
@@ -2911,16 +2971,31 @@ body {
 
 .stock-card-summary {
   border: none;
-  background: none;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(239, 247, 255, 0.92));
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 12px;
   width: 100%;
   text-align: left;
-  padding: 0;
+  padding: 2px;
   cursor: pointer;
   font: inherit;
   color: inherit;
+}
+
+.stock-card-summary img {
+  grid-row: span 2;
+  width: 62px;
+  height: 62px;
+  border-radius: 13px;
+  object-fit: cover;
+  background: #edf4fc;
+  border: 1px solid #e1e9f5;
+}
+
+.stock-card-copy {
+  min-width: 0;
 }
 
 .stock-card-summary:focus-visible {
@@ -2942,7 +3017,8 @@ body {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  grid-column: 2;
 }
 
 .chip.highlight {
@@ -3105,6 +3181,116 @@ body {
 
 .stock-movement .hero-sub {
   margin-bottom: 18px;
+}
+
+.stock-product-modal {
+  width: min(1080px, calc(100vw - 40px));
+  max-height: min(920px, calc(100vh - 32px));
+  overflow: auto;
+}
+
+.stock-product-modal-head h2 {
+  max-width: 760px;
+  font-size: clamp(24px, 2vw, 34px);
+  line-height: 1.08;
+}
+
+.stock-product-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(360px, 1fr);
+  gap: 18px;
+}
+
+.stock-product-overview,
+.stock-product-workbench,
+.stock-quick-movement,
+.stock-product-recent {
+  min-width: 0;
+  border: 1px solid #dfe6f2;
+  border-radius: 20px;
+  background: #f8fbff;
+}
+
+.stock-product-overview {
+  padding: 18px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.stock-product-overview > img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+  border: 1px solid #dfe6f2;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.stock-product-workbench {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff, #f6faff);
+}
+
+.stock-quick-movement {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+  background: #ffffff;
+}
+
+.stock-quick-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.stock-quick-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stock-quick-grid input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 11px 13px;
+  color: var(--text);
+  font: inherit;
+}
+
+.stock-quick-movement .primary {
+  justify-self: end;
+  min-width: 210px;
+}
+
+.stock-product-recent {
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.movement-card.compact {
+  min-height: 0;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.movement-card.compact span {
+  color: var(--muted);
 }
 
 .stock-search {

@@ -533,6 +533,8 @@
   .assist-form-grid,
   .assist-form-side .photo-grid,
   .inventory-grid,
+  .stock-product-modal-grid,
+  .stock-quick-grid,
   .weekly-summary,
   .weekly-row,
   .assistance-card footer,
@@ -546,6 +548,33 @@
 
   .edit-product-modal {
     padding: 18px;
+  }
+
+  .stock-product-modal {
+    width: calc(100vw - 18px);
+    padding: 18px;
+  }
+
+  .stock-product-modal-head h2 {
+    font-size: 22px;
+  }
+
+  .inventory-product-field {
+    grid-column: auto;
+  }
+
+  .stock-card-summary {
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .stock-card-summary img {
+    width: 52px;
+    height: 52px;
+  }
+
+  .stock-quick-movement .primary {
+    width: 100%;
+    min-width: 0;
   }
 
   .edit-product-modal .section-head h2 {
