@@ -4013,9 +4013,6 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     }, 0)
     const monthlyOrders = monthlyOrdersAll.length
     const averageTicket = monthlyOrders ? monthlyRevenue / monthlyOrders : 0
-    const conversionRate = monthlyOrdersAll.length
-      ? Math.round((sales.filter((sale) => sale.status === 'entregue').length / monthlyOrdersAll.length) * 100)
-      : null
     const pendingOrders = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
     const deliveredOrders = sales.filter((sale) => sale.status === 'entregue').length
     const clientsWithSales = new Set(sales.filter((sale) => sale.status !== 'cancelada').map((sale) => sale.clientId)).size
@@ -4178,13 +4175,13 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                 })}
               </ul>
             </div>
-            <div className="glass-card secondary">
-              <p className="eyebrow">Índice de conversão</p>
-              <h3>{conversionRate !== null ? `${conversionRate}%` : '—'}</h3>
-              <p className="mini-note">
-                {conversionRate !== null
-                  ? 'Percentual de pedidos entregues em relação aos emitidos neste mês.'
-                  : 'Nenhuma venda registrada no período atual.'}
+            <div className="glass-card commission-card">
+              <p className="eyebrow">Comissão do dia</p>
+              <p className="commission-value">{formatCurrency(todayRevenue * 0.05)}</p>
+              <p className="commission-note">
+                {todayRevenue > 0
+                  ? `5% sobre ${formatCurrency(todayRevenue)} vendidos hoje`
+                  : 'Registre uma venda para gerar comissão hoje'}
               </p>
             </div>
           </div>
