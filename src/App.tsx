@@ -852,7 +852,9 @@ const [paymentOverrides, setPaymentOverrides] = useState<Record<string, PaymentO
   const [monthlyGoalError, setMonthlyGoalError] = useState<string | null>(null)
   const [monthlyGoalFormValue, setMonthlyGoalFormValue] = useState(0)
 const [monthlyGoalSaving, setMonthlyGoalSaving] = useState(false)
-const [monthlyGoalNotice, setMonthlyGoalNotice] = useState<string | null>(null)
+const [goalModalOpen, setGoalModalOpen] = useState(false)
+const [commissionOffset, setCommissionOffset] = useState(0)
+const [chartOffset, setChartOffset] = useState(0)
 const [financeSummary, setFinanceSummary] = useState<FinanceSummary | null>(null)
 const [financeSummaryLoading, setFinanceSummaryLoading] = useState(false)
 const [financeSummaryError, setFinanceSummaryError] = useState<string | null>(null)
@@ -3718,7 +3720,6 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     event.preventDefault()
     if (!isAdmin) return
     setMonthlyGoalSaving(true)
-    setMonthlyGoalNotice(null)
     setMonthlyGoalError(null)
     try {
       const response = await fetch(`${API_BASE_URL}/finance/goal`, {
@@ -3737,7 +3738,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       } else {
         await fetchMonthlyGoalFromApi()
       }
-      setMonthlyGoalNotice('Meta atualizada com sucesso.')
+      setGoalModalOpen(false)
     } catch (error) {
       console.error(error)
       setMonthlyGoalError(error instanceof Error ? error.message : 'Erro ao atualizar meta.')
@@ -3991,7 +3992,6 @@ const focusInventoryPanel = (product?: StockItem | string) => {
   }
 
   const renderDashboard = () => {
-    const spotlightSales = sales.filter((sale) => sale.status !== 'cancelada' && !sale.requiresApproval).slice(0, 3)
     const nextDeliveries = sales
       .filter((sale) => sale.status === 'pendente' && !sale.requiresApproval)
       .sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate))
@@ -4011,70 +4011,6 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       const paymentsTotal = sale.payments.reduce((sub, payment) => sub + payment.amount, 0)
       return sum + paymentsTotal
     }, 0)
-    const monthlyOrders = monthlyOrdersAll.length
-    const averageTicket = monthlyOrders ? monthlyRevenue / monthlyOrders : 0
-    const pendingOrders = sales.filter((sale) => sale.status === 'pendente' && !sale.requiresApproval).length
-    const deliveredOrders = sales.filter((sale) => sale.status === 'entregue').length
-    const clientsWithSales = new Set(sales.filter((sale) => sale.status !== 'cancelada').map((sale) => sale.clientId)).size
-    const reservedStock = stockItems.reduce((sum, item) => sum + item.reserved, 0)
-    const totalStockUnits = stockItems.reduce((sum, item) => sum + item.quantity + item.reserved, 0)
-    const dashboardMetrics = [
-      {
-        label: 'Receita do mês',
-        value: formatCurrency(monthlyRevenue),
-        note: monthlyOrders ? `${monthlyOrders} pedidos emitidos` : 'Cadastre sua primeira venda',
-      },
-      {
-        label: 'Ticket médio',
-        value: formatCurrency(averageTicket || 0),
-        note: monthlyOrders ? `Base em ${monthlyOrders} pedidos` : 'Sem pedidos no mês atual',
-      },
-      {
-        label: 'Pedidos pendentes',
-        value: pendingOrders.toString(),
-        note: 'Aguardando confirmação de entrega',
-      },
-      {
-        label: 'Clientes com compras',
-        value: clientsWithSales.toString(),
-        note: `${clients.length} clientes ativos no CRM`,
-      },
-    ]
-    const pipelineStages = [
-      {
-        name: 'Pendentes',
-        primary: pendingOrders,
-        detail: 'Vendas aguardando entrega',
-        percent: sales.length ? Math.round((pendingOrders / sales.length) * 100) : 0,
-      },
-      {
-        name: 'Entregues',
-        primary: deliveredOrders,
-        detail: 'Pedidos finalizados',
-        percent: sales.length ? Math.round((deliveredOrders / sales.length) * 100) : 0,
-      },
-      {
-        name: 'Reservas de estoque',
-        primary: reservedStock,
-        detail: 'Itens comprometidos para pedidos',
-        percent: totalStockUnits ? Math.round((reservedStock / totalStockUnits) * 100) : 0,
-      },
-    ]
-    const insightMessages: string[] = []
-    if (!sales.length) {
-      insightMessages.push('Cadastre sua primeira venda para liberar indicadores financeiros.')
-    }
-    if (pendingOrders) {
-      insightMessages.push(`Há ${pendingOrders} pedidos aguardando confirmação de entrega.`)
-    }
-    const lowStock = stockItems.filter((item) => item.quantity <= 3).length
-    if (lowStock) {
-      insightMessages.push(`${lowStock} produtos estão em nível crítico de estoque.`)
-    }
-    if (!insightMessages.length) {
-      insightMessages.push('Sem pendências no momento. Continue acompanhando o painel.')
-    }
-
     const goalTarget = monthlyGoal?.target ?? 0
     const goalProgress = monthlyRevenue
     const goalPercent =
@@ -4082,6 +4018,68 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     const goalMonthLabel = new Date(currentYear, currentMonth).toLocaleDateString('pt-BR', {
       month: 'long',
     })
+
+    const commissionDay = new Date()
+    commissionDay.setDate(commissionDay.getDate() + commissionOffset)
+    const commissionDayStart = new Date(commissionDay)
+    commissionDayStart.setHours(0, 0, 0, 0)
+    const commissionDayEnd = new Date(commissionDay)
+    commissionDayEnd.setHours(23, 59, 59, 999)
+    const commissionDayRevenue = sales
+      .filter((sale) => {
+        if (sale.status === 'cancelada') return false
+        const createdAt = new Date(sale.createdAt)
+        if (Number.isNaN(createdAt.getTime())) return false
+        return createdAt >= commissionDayStart && createdAt <= commissionDayEnd
+      })
+      .reduce((sum, sale) => sum + sale.value, 0)
+    const commissionDayValue = commissionDayRevenue * 0.05
+    const commissionDayLabel =
+      commissionOffset === 0
+        ? 'Hoje'
+        : commissionOffset === -1
+          ? 'Ontem'
+          : commissionDay.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+    const chartDay = new Date()
+    chartDay.setDate(chartDay.getDate() + chartOffset)
+    const chartDayStart = new Date(chartDay)
+    chartDayStart.setHours(0, 0, 0, 0)
+    const chartDayEnd = new Date(chartDay)
+    chartDayEnd.setHours(23, 59, 59, 999)
+    const chartDayLabel =
+      chartOffset === 0
+        ? 'Hoje'
+        : chartOffset === -1
+          ? 'Ontem'
+          : chartDay.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+    const hourBuckets = Array.from({ length: 24 }, () => ({ total: 0, count: 0 }))
+    sales.forEach((sale) => {
+      if (sale.status === 'cancelada') return
+      const createdAt = new Date(sale.createdAt)
+      if (Number.isNaN(createdAt.getTime())) return
+      if (createdAt < chartDayStart || createdAt > chartDayEnd) return
+      const hour = createdAt.getHours()
+      hourBuckets[hour].total += sale.value
+      hourBuckets[hour].count += 1
+    })
+    const activeHours = hourBuckets
+      .map((bucket, hour) => ({ hour, ...bucket }))
+      .filter((bucket) => bucket.count > 0)
+    const firstHour = activeHours.length ? Math.min(...activeHours.map((b) => b.hour)) : 9
+    const lastHour = activeHours.length ? Math.max(...activeHours.map((b) => b.hour)) : 18
+    const startHour = Math.min(firstHour, 9)
+    const endHour = Math.max(lastHour, 18)
+    const hourlySales = Array.from({ length: endHour - startHour + 1 }, (_, index) => {
+      const hour = startHour + index
+      return { hour, ...hourBuckets[hour] }
+    })
+    const maxHourTotal = Math.max(1, ...hourlySales.map((bucket) => bucket.total))
+    const peakHour = activeHours.length
+      ? activeHours.reduce((best, bucket) => (bucket.total > best.total ? bucket : best))
+      : null
+    const padHour = (hour: number) => `${String(hour).padStart(2, '0')}h`
 
     return (
       <div className={`dashboard-grid${searchFocused ? ' search-mode' : ''}`}>
@@ -4175,15 +4173,6 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                 })}
               </ul>
             </div>
-            <div className="glass-card commission-card">
-              <p className="eyebrow">Comissão do dia</p>
-              <p className="commission-value">{formatCurrency(todayRevenue * 0.05)}</p>
-              <p className="commission-note">
-                {todayRevenue > 0
-                  ? `5% sobre ${formatCurrency(todayRevenue)} vendidos hoje`
-                  : 'Registre uma venda para gerar comissão hoje'}
-              </p>
-            </div>
           </div>
         </section>
 
@@ -4196,7 +4185,20 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                   {goalMonthLabel.charAt(0).toUpperCase() + goalMonthLabel.slice(1)} · {currentYear}
                 </h2>
               </div>
-              {monthlyGoalLoading && <span className="chip ghost">Atualizando…</span>}
+              <div className="goal-head-actions">
+                {monthlyGoalLoading && <span className="chip ghost">Atualizando…</span>}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setGoalModalOpen(true)}
+                    title="Configurar meta mensal"
+                    aria-label="Configurar meta mensal"
+                  >
+                    ⚙
+                  </button>
+                )}
+              </div>
             </div>
             {monthlyGoalError && <p className="login-error">{monthlyGoalError}</p>}
             <p className="goal-values">
@@ -4209,105 +4211,102 @@ const focusInventoryPanel = (product?: StockItem | string) => {
               {goalTarget > 0 ? `${goalPercent}% atingido` : 'Defina a meta para este mês.'}
             </p>
           </div>
-          {isAdmin && (
-            <form className="goal-form" onSubmit={handleSaveMonthlyGoal}>
-              <label>
-                Meta mensal (R$)
-                <NumericFormat
-                  value={monthlyGoalFormValue === 0 ? '' : monthlyGoalFormValue}
-                  thousandSeparator="."
-                  decimalSeparator=","
-                  decimalScale={2}
-                  fixedDecimalScale
-                  allowNegative={false}
-                  inputMode="decimal"
-                  placeholder="0,00"
-                  onValueChange={({ floatValue }) => setMonthlyGoalFormValue(floatValue ?? 0)}
-                />
-              </label>
-              <div className="goal-form-actions">
-                <button className="primary" type="submit" disabled={monthlyGoalSaving}>
-                  {monthlyGoalSaving ? 'Salvando...' : 'Salvar meta'}
-                </button>
-                {monthlyGoalNotice && <p className="user-notice">{monthlyGoalNotice}</p>}
-              </div>
-            </form>
-          )}
         </section>
 
-        <section className="panel deep-metrics span-2">
-          <div className="metrics-grid">
-            {dashboardMetrics.map((item) => (
-              <div className="metric-card" key={item.label}>
-                <div className="metric-top">
-                  <p className="metric-label">{item.label}</p>
-                </div>
-                <p className="metric-value">{item.value}</p>
-                <p className="metric-note">{item.note}</p>
-              </div>
-            ))}
+        <section className="panel commission-panel">
+          <div className="commission-head">
+            <p className="eyebrow">Comissão · {commissionDayLabel}</p>
+            <div className="commission-nav">
+              <button
+                type="button"
+                onClick={() => setCommissionOffset((value) => value - 1)}
+                title="Dia anterior"
+                aria-label="Dia anterior"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommissionOffset((value) => Math.min(0, value + 1))}
+                disabled={commissionOffset >= 0}
+                title="Próximo dia"
+                aria-label="Próximo dia"
+              >
+                ›
+              </button>
+            </div>
           </div>
-          <div className="pipeline-modern">
-            <header>
-              <div>
-                <p className="eyebrow">Pipeline</p>
-                <h2>Fluxo de oportunidades</h2>
+          <p className="commission-value">{formatCurrency(commissionDayValue)}</p>
+          <p className="commission-note">
+            {commissionDayRevenue > 0
+              ? `5% sobre ${formatCurrency(commissionDayRevenue)} vendidos`
+              : 'Nenhuma venda registrada neste dia'}
+          </p>
+          <div className="commission-foot">
+            <span>Vendas do dia</span>
+            <strong>{formatCurrency(commissionDayRevenue)}</strong>
+          </div>
+        </section>
+
+        <section className="panel hours-panel">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow">Vendas por horário · {chartDayLabel}</p>
+              <h2>Quando você mais vende</h2>
+            </div>
+            <div className="hours-head-actions">
+              {peakHour && (
+                <span className="chip ghost">
+                  Pico às {padHour(peakHour.hour)} · {formatCurrency(peakHour.total)}
+                </span>
+              )}
+              <div className="commission-nav light">
+                <button
+                  type="button"
+                  onClick={() => setChartOffset((value) => value - 1)}
+                  title="Dia anterior"
+                  aria-label="Dia anterior"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartOffset((value) => Math.min(0, value + 1))}
+                  disabled={chartOffset >= 0}
+                  title="Próximo dia"
+                  aria-label="Próximo dia"
+                >
+                  ›
+                </button>
               </div>
-              <span className="chip ghost">Baseado nas vendas registradas</span>
-            </header>
-            <div className="pipeline-columns">
-              {pipelineStages.map((stage) => (
-                <div className="pipeline-column" key={stage.name}>
-                  <div className="pipeline-column-head">
-                    <p>{stage.name}</p>
-                    <span>{stage.primary}</span>
+            </div>
+          </div>
+          {peakHour ? (
+            <div className="hours-chart">
+              {hourlySales.map((bucket) => (
+                <div
+                  className={`hours-bar-col${bucket.hour === peakHour.hour ? ' peak' : ''}`}
+                  key={bucket.hour}
+                  title={`${padHour(bucket.hour)} · ${formatCurrency(bucket.total)} · ${bucket.count} ${bucket.count === 1 ? 'venda' : 'vendas'}`}
+                >
+                  <div className="hours-bar-track">
+                    <div
+                      className="hours-bar-spacer"
+                      style={{ flexGrow: Math.max(0, maxHourTotal * 1.2 - bucket.total) }}
+                    />
+                    {bucket.total > 0 && (
+                      <div className="hours-bar-fill" style={{ flexGrow: bucket.total }}>
+                        <span className="hours-bar-value">{formatCurrency(bucket.total)}</span>
+                      </div>
+                    )}
                   </div>
-                  <p className="stage-vibe">{stage.detail}</p>
-                  <div className="stage-progress">
-                    <span style={{ width: `${Math.min(100, stage.percent)}%` }} />
-                  </div>
-                  <div className="stage-foot">
-                    <strong>{stage.percent}%</strong>
-                    <span>do total observado</span>
-                  </div>
+                  <span className="hours-bar-label">{padHour(bucket.hour)}</span>
                 </div>
               ))}
             </div>
-          </div>
-        </section>
-
-        <section className="panel activity-grid">
-          <div className="activity-column">
-            <header>
-              <p className="eyebrow">Vendas recentes</p>
-              <h3>Spotlight</h3>
-            </header>
-            <ul>
-              {spotlightSales.map((sale) => {
-                const client = clients.find((clientItem) => clientItem.id === sale.clientId)
-                return (
-                  <li key={sale.id}>
-                    <div>
-                      <strong>#{sale.id}</strong>
-                      <p>{client?.name ?? sale.clientName ?? 'Cliente removido'}</p>
-                    </div>
-                    <span>{formatCurrency(sale.value)}</span>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-          <div className="activity-column secondary">
-            <header>
-              <p className="eyebrow">Insights rápidos</p>
-              <h3>Próximas ações</h3>
-            </header>
-            <ul>
-              {insightMessages.map((message, index) => (
-                <li key={index}>{message}</li>
-              ))}
-            </ul>
-          </div>
+          ) : (
+            <p className="empty-state">Nenhuma venda registrada neste dia.</p>
+          )}
         </section>
       </div>
     )
@@ -6810,6 +6809,45 @@ const focusInventoryPanel = (product?: StockItem | string) => {
 
         <main className="content">{renderContent()}</main>
       </div>
+
+      {goalModalOpen && isAdmin && (
+        <div className="modal-backdrop" onClick={() => setGoalModalOpen(false)}>
+          <div className="modal goal-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Meta do mês</p>
+                <h2>Configurar meta mensal</h2>
+              </div>
+              <button className="text-button" onClick={() => setGoalModalOpen(false)}>
+                Fechar
+              </button>
+            </div>
+            <form className="goal-form" onSubmit={handleSaveMonthlyGoal}>
+              <label>
+                Meta mensal (R$)
+                <NumericFormat
+                  value={monthlyGoalFormValue === 0 ? '' : monthlyGoalFormValue}
+                  thousandSeparator="."
+                  decimalSeparator=","
+                  decimalScale={2}
+                  fixedDecimalScale
+                  allowNegative={false}
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  autoFocus
+                  onValueChange={({ floatValue }) => setMonthlyGoalFormValue(floatValue ?? 0)}
+                />
+              </label>
+              {monthlyGoalError && <p className="login-error">{monthlyGoalError}</p>}
+              <div className="goal-form-actions">
+                <button className="primary" type="submit" disabled={monthlyGoalSaving}>
+                  {monthlyGoalSaving ? 'Salvando...' : 'Salvar meta'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {clientModalOpen && (
         <div className="modal-backdrop" onClick={closeClientModal}>
