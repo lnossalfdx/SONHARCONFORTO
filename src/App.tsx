@@ -2077,10 +2077,10 @@ useEffect(() => {
     : null
 
   const facts = [
-    { label: 'Clientes ativos', value: clients.length.toString(), detail: 'Cadastros no CRM' },
-    { label: 'Receita de hoje', value: formatCurrency(todayRevenue), detail: 'Faturado até agora' },
-    { label: 'Entregas pendentes', value: `${pendingDeliveries} vendas`, detail: 'Prontas para confirmar' },
-    { label: 'Aguardando aprovação', value: `${awaitingApproval}`, detail: 'Itens personalizados pendentes' },
+    { label: 'Clientes ativos', value: clients.length.toString(), detail: 'Cadastros no CRM', icon: '👥', tone: 'blue' },
+    { label: 'Receita de hoje', value: formatCurrency(todayRevenue), detail: 'Faturado até agora', icon: '💰', tone: 'green' },
+    { label: 'Entregas pendentes', value: `${pendingDeliveries} vendas`, detail: 'Prontas para confirmar', icon: '🚚', tone: 'amber' },
+    { label: 'Aguardando aprovação', value: `${awaitingApproval}`, detail: 'Itens personalizados pendentes', icon: '⏳', tone: 'violet' },
   ]
 
   const addClient = async (data: typeof emptyClientForm) => {
@@ -4141,10 +4141,13 @@ const focusInventoryPanel = (product?: StockItem | string) => {
             </div>
             <div className="hero-highlight-row">
               {facts.map((fact) => (
-                <div className="hero-highlight" key={fact.label}>
-                  <p className="fact-label">{fact.label}</p>
-                  <p className="fact-value">{fact.value}</p>
-                  <p className="fact-detail">{fact.detail}</p>
+                <div className={`hero-highlight tone-${fact.tone}`} key={fact.label}>
+                  <span className="fact-icon" aria-hidden="true">{fact.icon}</span>
+                  <div className="fact-body">
+                    <p className="fact-label">{fact.label}</p>
+                    <p className="fact-value">{fact.value}</p>
+                    <p className="fact-detail">{fact.detail}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -4305,7 +4308,15 @@ const focusInventoryPanel = (product?: StockItem | string) => {
               ))}
             </div>
           ) : (
-            <p className="empty-state">Nenhuma venda registrada neste dia.</p>
+            <div className="hours-empty">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="3" y="13" width="4" height="7" rx="1.2" fill="currentColor" />
+                <rect x="10" y="9" width="4" height="11" rx="1.2" fill="currentColor" />
+                <rect x="17" y="5" width="4" height="15" rx="1.2" fill="currentColor" />
+              </svg>
+              <p>Nenhuma venda registrada {chartDayLabel === 'Hoje' ? 'hoje' : 'neste dia'}.</p>
+              <span>Assim que entrarem vendas, o gráfico por horário aparece aqui.</span>
+            </div>
           )}
         </section>
       </div>
