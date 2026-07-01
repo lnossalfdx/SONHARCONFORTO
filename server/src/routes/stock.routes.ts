@@ -67,11 +67,9 @@ router.get('/', authMiddleware, async (request, response) => {
   if (normalizedSearch) {
     const compactDigits = normalizedSearch.replace(/\D/g, '')
     const escapedSearch = normalizedSearch.replace(/[%_,]/g, '')
+    const isPureDigit = compactDigits === normalizedSearch && compactDigits.length > 0
     const filters = [`name.ilike.%${escapedSearch}%`, `sku.ilike.%${escapedSearch}%`]
-    if (compactDigits.length >= 2 && compactDigits !== escapedSearch) {
-      filters.push(`name.ilike.%${compactDigits}%`, `sku.ilike.%${compactDigits}%`)
-    }
-    if (compactDigits.length >= 3) {
+    if (isPureDigit && compactDigits.length >= 3) {
       const looseDigits = compactDigits.split('').join('%')
       filters.push(`name.ilike.%${looseDigits}%`, `sku.ilike.%${looseDigits}%`)
     }
