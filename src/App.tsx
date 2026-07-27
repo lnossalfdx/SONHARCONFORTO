@@ -366,18 +366,20 @@ const normalizeSearchValue = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '')
 
+// Cada palavra digitada e procurada separadamente em nome + SKU, entao a ordem
+// nao importa: "cama sumo" acha "CAMA BOX SUMO CONTEMPORANEO".
 const stockMatchesSearch = (stock: StockItem, query: string) => {
-  const normalizedQuery = normalizeSearchValue(query)
-  if (!normalizedQuery) return true
-  const normalizedName = normalizeSearchValue(stock.name)
-  const normalizedSku = normalizeSearchValue(stock.sku)
-  const queryDigits = query.replace(/\D/g, '')
+  const terms = query.trim().split(/\s+/).filter(Boolean)
+  if (!terms.length) return true
+  const haystack = normalizeSearchValue(`${stock.name} ${stock.sku}`)
   const stockDigits = `${stock.name} ${stock.sku}`.replace(/\D/g, '')
-  return (
-    normalizedName.includes(normalizedQuery) ||
-    normalizedSku.includes(normalizedQuery) ||
-    (Boolean(queryDigits) && stockDigits.includes(queryDigits))
-  )
+  return terms.every((term) => {
+    const normalizedTerm = normalizeSearchValue(term)
+    if (!normalizedTerm) return true
+    if (haystack.includes(normalizedTerm)) return true
+    // Medidas escritas de formas diferentes (1,38 / 138 / 1.38) caem aqui.
+    return /^\d+$/.test(normalizedTerm) && stockDigits.includes(normalizedTerm)
+  })
 }
 
 const parseSaleCode = (value: string) => {
@@ -7050,7 +7052,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                   Para registrar uma venda, cadastre pelo menos um cliente e um produto em estoque.
                 </p>
               )}
-              <label className="search-field sale-client-field">
+              <label className="search-field sale-client-field sale-section">
                 Cliente
                 <input
                   value={saleClientSearch}
@@ -7081,7 +7083,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                   </div>
                 )}
               </label>
-              <div className="sale-items-stack">
+              <div className="sale-items-stack sale-section">
                 <div className="sale-items-head">
                   <div>
                     <p className="form-title">Itens do pedido</p>
@@ -7310,66 +7312,77 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                 })}
               </div>
 
-              <div className="sale-details-panel">
-                <div className="sale-details-grid">
-                  <label>
-                    Data de entrega
-                    <input
-                      type="date"
-                      value={saleForm.deliveryDate}
-                      onChange={(event) =>
-                        setSaleForm((prev) => ({
-                          ...prev,
-                          deliveryDate: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Desconto total (R$)
-                    <NumericFormat
-                      value={saleForm.discount === 0 ? '' : saleForm.discount}
-                      thousandSeparator="."
-                      decimalSeparator=","
-                      decimalScale={2}
-                      fixedDecimalScale
-                      allowNegative={false}
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      onValueChange={({ floatValue }) =>
-                        setSaleForm((prev) => ({
-                          ...prev,
-                          discount: floatValue ?? 0,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="sale-note-field">
-                    Observações
-                    <textarea
-                      value={saleForm.note}
-                      onChange={(event) => setSaleForm((prev) => ({ ...prev, note: event.target.value }))}
-                      rows={2}
-                      placeholder="Entrega, montagem, referência..."
-                    />
-                  </label>
+              <div className="sale-details-panel sale-section">
+                <div className="sale-items-head">
+                  <div>
+                    <p className="form-title">Entrega e valores</p>
+                    <span className="sale-section-note">Data combinada com o cliente, desconto e observações do pedido.</span>
+                  </div>
                 </div>
-                <div className="sale-summary">
-                  <p>
-                    Subtotal <strong>{formatCurrency(saleSubtotal)}</strong>
-                  </p>
-                  <p>
-                    Desconto <strong>-{formatCurrency(normalizedDiscount)}</strong>
-                  </p>
-                  <p className="sale-total">
-                    Total <strong>{formatCurrency(saleTotal)}</strong>
-                  </p>
+                <div className="sale-details-body">
+                  <div className="sale-details-grid">
+                    <label>
+                      Data de entrega
+                      <input
+                        type="date"
+                        value={saleForm.deliveryDate}
+                        onChange={(event) =>
+                          setSaleForm((prev) => ({
+                            ...prev,
+                            deliveryDate: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                    </label>
+                    <label>
+                      Desconto total (R$)
+                      <NumericFormat
+                        value={saleForm.discount === 0 ? '' : saleForm.discount}
+                        thousandSeparator="."
+                        decimalSeparator=","
+                        decimalScale={2}
+                        fixedDecimalScale
+                        allowNegative={false}
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        onValueChange={({ floatValue }) =>
+                          setSaleForm((prev) => ({
+                            ...prev,
+                            discount: floatValue ?? 0,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="sale-note-field">
+                      Observações
+                      <textarea
+                        value={saleForm.note}
+                        onChange={(event) => setSaleForm((prev) => ({ ...prev, note: event.target.value }))}
+                        rows={2}
+                        placeholder="Entrega, montagem, referência..."
+                      />
+                    </label>
+                  </div>
+                  <div className="sale-summary">
+                    <p>
+                      Subtotal <strong>{formatCurrency(saleSubtotal)}</strong>
+                    </p>
+                    <p>
+                      Desconto <strong>-{formatCurrency(normalizedDiscount)}</strong>
+                    </p>
+                    <p className="sale-total">
+                      Total <strong>{formatCurrency(saleTotal)}</strong>
+                    </p>
+                  </div>
                 </div>
               </div>
-              <div className="sale-payments-stack">
+              <div className="sale-payments-stack sale-section">
                 <div className="sale-items-head">
-                  <p className="form-title">Formas de pagamento</p>
+                  <div>
+                    <p className="form-title">Formas de pagamento</p>
+                    <span className="sale-section-note">A soma precisa fechar com o total do pedido.</span>
+                  </div>
                   <button type="button" className="ghost" onClick={addPaymentRow} disabled={saleModalLoading}>
                     Adicionar pagamento
                   </button>
@@ -7479,7 +7492,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                 </p>
               </div>
               {editingSale && (
-                <div className="sale-receipt">
+                <div className="sale-receipt sale-section">
                   <p className="form-title">Comprovante de pagamento</p>
                   {saleReceiptLoading && <p className="sale-meta mini">Carregando comprovante...</p>}
                   {!saleReceiptLoading && saleReceiptImages.length === 0 && (

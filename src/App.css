@@ -2458,7 +2458,7 @@ body {
 
 @media (max-width: 980px) {
   .sale-item-row,
-  .sale-details-panel,
+  .sale-details-body,
   .sale-details-grid {
     grid-template-columns: 1fr;
   }
@@ -4937,19 +4937,23 @@ body {
   grid-column: 1 / -1;
 }
 
+/* O cabecalho precisa cobrir tambem o padding do modal, senao o conteudo
+   rolado aparece na faixa acima dele. Fundo opaco pelo mesmo motivo. */
 .modal.sale-modal .section-head {
   position: sticky;
   top: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.92));
-  padding: 4px 0 14px;
-  z-index: 1;
-  backdrop-filter: blur(10px);
+  z-index: 3;
+  margin: -22px -22px 2px;
+  padding: 18px 22px 14px;
+  background: #ffffff;
   border-bottom: 1px solid #e6edf7;
+  border-radius: 18px 18px 0 0;
+  align-items: flex-start;
 }
 
 .sale-modal-head h2 {
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: clamp(20px, 1.7vw, 26px);
+  margin: 2px 0 0;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
@@ -4973,14 +4977,101 @@ body {
 
 .sale-modal .modal-actions {
   position: sticky;
-  bottom: -22px;
-  z-index: 2;
-  margin: 0 -22px -22px;
-  padding: 14px 22px 18px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7), #ffffff 42%);
+  bottom: 0;
+  z-index: 3;
+  margin: 4px -22px -22px;
+  padding: 14px 22px 20px;
+  background: #ffffff;
   border-top: 1px solid #e6edf7;
-  backdrop-filter: blur(10px);
+  border-radius: 0 0 18px 18px;
+}
+
+/* --- Secoes do modal de pedido --- */
+
+.sale-modal .simple-form {
+  gap: 14px;
+}
+
+.sale-modal .sale-section {
+  border: 1px solid #e4ecf7;
+  border-radius: 18px;
+  background: #fbfdff;
+  padding: 16px;
+  box-shadow: 0 6px 18px rgba(16, 42, 76, 0.04);
+}
+
+.sale-modal .sale-section .form-title {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #35507d;
+}
+
+.sale-modal .sale-items-head {
+  align-items: flex-start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eaf0f9;
+}
+
+.sale-modal .sale-client-field {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #35507d;
+}
+
+.sale-modal .sale-client-field input {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  color: #14213d;
+}
+
+.sale-details-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sale-details-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.4fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.sale-details-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sale-note-field {
+  grid-column: 1 / -1;
+}
+
+.sale-note-field textarea {
+  min-height: 64px;
+}
+
+.sale-modal .sale-summary {
+  background: linear-gradient(180deg, #ffffff, #f5f9ff);
+  border-color: #dbe6f5;
+}
+
+.sale-modal .payment-row,
+.sale-modal .sale-item-row {
+  background: #ffffff;
+}
+
+.sale-modal .sale-items-stack {
+  border-style: solid;
+}
+
+@media (max-width: 980px) {
+  .sale-details-body,
+  .sale-details-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .sale-modal .modal-actions .primary {

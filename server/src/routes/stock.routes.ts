@@ -65,15 +65,21 @@ router.get('/', authMiddleware, async (request, response) => {
     query = query.range(safeOffset, safeOffset + safeLimit - 1)
   }
   if (normalizedSearch) {
-    const compactDigits = normalizedSearch.replace(/\D/g, '')
-    const escapedSearch = normalizedSearch.replace(/[%_,]/g, '')
-    const isPureDigit = compactDigits === normalizedSearch && compactDigits.length > 0
-    const filters = [`name.ilike.%${escapedSearch}%`, `sku.ilike.%${escapedSearch}%`]
-    if (isPureDigit && compactDigits.length >= 3) {
-      const looseDigits = compactDigits.split('').join('%')
-      filters.push(`name.ilike.%${looseDigits}%`, `sku.ilike.%${looseDigits}%`)
+    // Cada palavra vira uma condicao propria (ANDadas pelo PostgREST), entao a busca
+    // acha o produto mesmo com as palavras fora de ordem ou separadas no nome.
+    const terms = normalizedSearch.split(/\s+/).filter(Boolean).slice(0, 6)
+    for (const term of terms) {
+      const escapedTerm = term.replace(/[%_,()]/g, '')
+      if (!escapedTerm) continue
+      const filters = [`name.ilike.%${escapedTerm}%`, `sku.ilike.%${escapedTerm}%`]
+      const termDigits = escapedTerm.replace(/\D/g, '')
+      const isPureDigit = termDigits === escapedTerm && termDigits.length >= 3
+      if (isPureDigit) {
+        const looseDigits = termDigits.split('').join('%')
+        filters.push(`name.ilike.%${looseDigits}%`, `sku.ilike.%${looseDigits}%`)
+      }
+      query = query.or(filters.join(','))
     }
-    query = query.or(filters.join(','))
   }
   if (filter === 'low') {
     query = query.lte('quantity', 3)
