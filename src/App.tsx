@@ -7030,532 +7030,536 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         <div className="modal-backdrop" onClick={closeSaleModal}>
           <div className="modal sale-modal" onClick={(event) => event.stopPropagation()}>
             <div className="section-head sale-modal-head">
-              <div>
+              <div className="sale-modal-title">
                 <p className="eyebrow">Sleep Lab</p>
                 <h2>{editingSale ? `Editar pedido #${saleDraftId}` : `Novo pedido #${saleDraftId}`}</h2>
-                <div className="sale-modal-summary-line">
-                  <span>{saleForm.items.length} itens</span>
-                  <span>{formatCurrency(saleTotal)}</span>
-                  <span>{paymentBalanced ? 'Pagamentos conferidos' : 'Pagamentos pendentes'}</span>
-                </div>
               </div>
-              <button className="text-button" onClick={closeSaleModal}>
+              <div className="sale-modal-summary-line">
+                <span>{saleForm.items.length} {saleForm.items.length === 1 ? 'item' : 'itens'}</span>
+                <span className="strong">{formatCurrency(saleTotal)}</span>
+                <span className={paymentBalanced ? 'ok' : 'warn'}>
+                  {paymentBalanced ? 'Pagamentos conferidos' : 'Pagamentos pendentes'}
+                </span>
+              </div>
+              <button className="text-button sale-modal-close" onClick={closeSaleModal} aria-label="Fechar">
                 Fechar
               </button>
             </div>
             <form className="simple-form sale-editor-form" onSubmit={handleRegisterSale}>
-              {saleModalLoading && (
-                <p className="empty-state">Carregando clientes e produtos...</p>
-              )}
-              {!saleModalLoading && (!clients.length || !stockItems.length) && (
-                <p className="empty-state">
-                  Para registrar uma venda, cadastre pelo menos um cliente e um produto em estoque.
-                </p>
-              )}
-              <label className="search-field sale-client-field sale-section">
-                Cliente
-                <input
-                  value={saleClientSearch}
-                  onFocus={() => setClientSearchFocused(true)}
-                  onBlur={() => setTimeout(() => setClientSearchFocused(false), 150)}
-                  onChange={(event) => setSaleClientSearch(event.target.value)}
-                  placeholder="Digite o nome do cliente"
-                  autoComplete="off"
-                  onKeyDown={handleClientSearchKeyDown}
-                />
-                {clientSearchFocused && (
-                  <div className="search-dropdown">
-                    {saleClientOptions.length ? (
-                      saleClientOptions.slice(0, 6).map((client) => (
-                        <button
-                          type="button"
-                          key={client.id}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => handleSelectClientOption(client)}
-                        >
-                          <strong>{client.name}</strong>
-                          <span>{client.phone || client.cpf || 'Cliente sem contato'}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="empty-state">Nenhum cliente encontrado.</p>
-                    )}
-                  </div>
+              <div className="sale-modal-body">
+                {saleModalLoading && (
+                  <p className="empty-state">Carregando clientes e produtos...</p>
                 )}
-              </label>
-              <div className="sale-items-stack sale-section">
-                <div className="sale-items-head">
-                  <div>
-                    <p className="form-title">Itens do pedido</p>
-                    <span className="sale-section-note">Produtos do estoque continuam normais; personalizados aguardam aprovação.</span>
-                  </div>
-                  <div className="sale-items-actions">
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={addSaleItemRow}
-                      disabled={!stockItems.length || saleModalLoading}
-                    >
-                      + Produto
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      onClick={addCustomSaleItem}
-                      disabled={saleModalLoading}
-                    >
-                      + Personalizado
-                    </button>
-                  </div>
-                </div>
-                {saleForm.items.length === 0 && (
-                  <p className="empty-state">Nenhum item selecionado. Use "Adicionar item" para começar.</p>
+                {!saleModalLoading && (!clients.length || !stockItems.length) && (
+                  <p className="empty-state">
+                    Para registrar uma venda, cadastre pelo menos um cliente e um produto em estoque.
+                  </p>
                 )}
-
-                {saleForm.items.map((item, index) => {
-                  const isCustomItem = Boolean(item.isCustom || !item.productId)
-                  const product = !isCustomItem ? stockItems.find((stock) => stock.id === item.productId) : null
-                  const reservedAmount = !isCustomItem ? reservedByEditingSale(item.productId) : 0
-                  const availableQuantity = product ? product.quantity + reservedAmount : null
-                  const query = item.searchName ?? ''
-                  const remoteProducts = productSearchResults[index] ?? []
-                  const mergedProducts = [...remoteProducts, ...stockItems].reduce<StockItem[]>((acc, stock) => {
-                    if (!acc.some((item) => item.id === stock.id)) acc.push(stock)
-                    return acc
-                  }, [])
-                  const filteredProducts = query.trim()
-                    ? mergedProducts.filter((stock) => stockMatchesSearch(stock, query))
-                    : mergedProducts
-                  const suggestions = filteredProducts.slice(0, 12)
-                  const selectStock = (stock: StockItem) => {
-                    updateSaleItemRow(index, {
-                      productId: stock.id,
-                      unitPrice: stock.price,
-                      discount: 0,
-                      searchName: stock.name,
-                      customName: '',
-                      isCustom: false,
-                    })
-                    setActiveProductSearch(null)
-                  }
-                  const handleProductSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-                    if (event.key !== 'Enter') return
-                    const firstAvailable = suggestions.find((stock) => {
-                      const suggestionReserved = reservedByEditingSale(stock.id)
-                      return stock.quantity + suggestionReserved > 0
-                    })
-                    if (!firstAvailable) return
-                    event.preventDefault()
-                    selectStock(firstAvailable)
-                  }
-                  const handleCustomNameChange = (value: string) => {
-                    updateSaleItemRow(index, {
-                      customName: value,
-                      searchName: value,
-                      productId: '',
-                      isCustom: true,
-                    })
-                  }
-                  return (
-                    <div className={`sale-item-row ${isCustomItem ? 'custom' : 'stock'}`} key={`${item.productId || 'custom'}-${index}`}>
-                      <div className="sale-item-product">
-                        <span className="sale-item-number">{index + 1}</span>
-                        <img
-                          src={isCustomItem ? customItemPlaceholder : product?.imageUrl ?? customItemPlaceholder}
-                          alt={isCustomItem ? 'Item personalizado' : product?.name ?? 'Produto'}
-                        />
-                        <div className="product-field">
-                          <div className="sale-item-titlebar">
-                            <span className="product-label">{isCustomItem ? 'Item personalizado' : 'Produto'}</span>
-                            <span className={`sale-item-kind ${isCustomItem ? 'custom' : 'stock'}`}>
-                              {isCustomItem ? 'Aprovação' : 'Estoque'}
-                            </span>
-                          </div>
-                          {isCustomItem ? (
-                            <>
-                              <input
-                                value={item.customName ?? ''}
-                                onChange={(event) => handleCustomNameChange(event.target.value)}
-                                placeholder="Descreva o item"
-                                autoComplete="off"
-                              />
-                              <span className="input-hint">Aguardará aprovação do administrador.</span>
-                            </>
-                          ) : (
-                            <>
-                              <input
-                                value={item.searchName ?? product?.name ?? ''}
-                                onFocus={() => setActiveProductSearch(index)}
-                                onBlur={() =>
-                                  setTimeout(() => setActiveProductSearch((prev) => (prev === index ? null : prev)), 150)
-                                }
-                                onChange={(event) =>
-                                  updateSaleItemRow(index, {
-                                    searchName: event.target.value,
-                                  })
-                                }
-                                placeholder="Nome ou SKU"
-                                autoComplete="off"
-                                onKeyDown={handleProductSearchKeyDown}
-                              />
-                              {activeProductSearch === index && (
-                                <div className="search-dropdown">
-                                  {productSearchLoading && activeProductSearch === index && (
-                                    <p className="dropdown-note">Buscando no estoque...</p>
-                                  )}
-                                  {suggestions.length ? (
-                                    suggestions.map((stock) => {
-                                      const suggestionReserved = reservedByEditingSale(stock.id)
-                                      const suggestionAvailable = stock.quantity + suggestionReserved
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={stock.id}
-                                          disabled={suggestionAvailable <= 0}
-                                          onMouseDown={(event) => event.preventDefault()}
-                                          onClick={() => selectStock(stock)}
-                                        >
-                                          <strong>{stock.name}</strong>
-                                          <span>
-                                            {suggestionAvailable} em estoque · SKU {stock.sku}
-                                          </span>
-                                        </button>
-                                      )
+                <label className="search-field sale-client-field sale-section">
+                  Cliente
+                  <input
+                    value={saleClientSearch}
+                    onFocus={() => setClientSearchFocused(true)}
+                    onBlur={() => setTimeout(() => setClientSearchFocused(false), 150)}
+                    onChange={(event) => setSaleClientSearch(event.target.value)}
+                    placeholder="Digite o nome do cliente"
+                    autoComplete="off"
+                    onKeyDown={handleClientSearchKeyDown}
+                  />
+                  {clientSearchFocused && (
+                    <div className="search-dropdown">
+                      {saleClientOptions.length ? (
+                        saleClientOptions.slice(0, 6).map((client) => (
+                          <button
+                            type="button"
+                            key={client.id}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => handleSelectClientOption(client)}
+                          >
+                            <strong>{client.name}</strong>
+                            <span>{client.phone || client.cpf || 'Cliente sem contato'}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="empty-state">Nenhum cliente encontrado.</p>
+                      )}
+                    </div>
+                  )}
+                </label>
+                <div className="sale-items-stack sale-section">
+                  <div className="sale-items-head">
+                    <div>
+                      <p className="form-title">Itens do pedido</p>
+                      <span className="sale-section-note">Produtos do estoque continuam normais; personalizados aguardam aprovação.</span>
+                    </div>
+                    <div className="sale-items-actions">
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={addSaleItemRow}
+                        disabled={!stockItems.length || saleModalLoading}
+                      >
+                        + Produto
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={addCustomSaleItem}
+                        disabled={saleModalLoading}
+                      >
+                        + Personalizado
+                      </button>
+                    </div>
+                  </div>
+                  {saleForm.items.length === 0 && (
+                    <p className="empty-state">Nenhum item selecionado. Use "Adicionar item" para começar.</p>
+                  )}
+  
+                  {saleForm.items.map((item, index) => {
+                    const isCustomItem = Boolean(item.isCustom || !item.productId)
+                    const product = !isCustomItem ? stockItems.find((stock) => stock.id === item.productId) : null
+                    const reservedAmount = !isCustomItem ? reservedByEditingSale(item.productId) : 0
+                    const availableQuantity = product ? product.quantity + reservedAmount : null
+                    const query = item.searchName ?? ''
+                    const remoteProducts = productSearchResults[index] ?? []
+                    const mergedProducts = [...remoteProducts, ...stockItems].reduce<StockItem[]>((acc, stock) => {
+                      if (!acc.some((item) => item.id === stock.id)) acc.push(stock)
+                      return acc
+                    }, [])
+                    const filteredProducts = query.trim()
+                      ? mergedProducts.filter((stock) => stockMatchesSearch(stock, query))
+                      : mergedProducts
+                    const suggestions = filteredProducts.slice(0, 12)
+                    const selectStock = (stock: StockItem) => {
+                      updateSaleItemRow(index, {
+                        productId: stock.id,
+                        unitPrice: stock.price,
+                        discount: 0,
+                        searchName: stock.name,
+                        customName: '',
+                        isCustom: false,
+                      })
+                      setActiveProductSearch(null)
+                    }
+                    const handleProductSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+                      if (event.key !== 'Enter') return
+                      const firstAvailable = suggestions.find((stock) => {
+                        const suggestionReserved = reservedByEditingSale(stock.id)
+                        return stock.quantity + suggestionReserved > 0
+                      })
+                      if (!firstAvailable) return
+                      event.preventDefault()
+                      selectStock(firstAvailable)
+                    }
+                    const handleCustomNameChange = (value: string) => {
+                      updateSaleItemRow(index, {
+                        customName: value,
+                        searchName: value,
+                        productId: '',
+                        isCustom: true,
+                      })
+                    }
+                    return (
+                      <div className={`sale-item-row ${isCustomItem ? 'custom' : 'stock'}`} key={`${item.productId || 'custom'}-${index}`}>
+                        <div className="sale-item-product">
+                          <span className="sale-item-number">{index + 1}</span>
+                          <img
+                            src={isCustomItem ? customItemPlaceholder : product?.imageUrl ?? customItemPlaceholder}
+                            alt={isCustomItem ? 'Item personalizado' : product?.name ?? 'Produto'}
+                          />
+                          <div className="product-field">
+                            <div className="sale-item-titlebar">
+                              <span className="product-label">{isCustomItem ? 'Item personalizado' : 'Produto'}</span>
+                              <span className={`sale-item-kind ${isCustomItem ? 'custom' : 'stock'}`}>
+                                {isCustomItem ? 'Aprovação' : 'Estoque'}
+                              </span>
+                            </div>
+                            {isCustomItem ? (
+                              <>
+                                <input
+                                  value={item.customName ?? ''}
+                                  onChange={(event) => handleCustomNameChange(event.target.value)}
+                                  placeholder="Descreva o item"
+                                  autoComplete="off"
+                                />
+                                <span className="input-hint">Aguardará aprovação do administrador.</span>
+                              </>
+                            ) : (
+                              <>
+                                <input
+                                  value={item.searchName ?? product?.name ?? ''}
+                                  onFocus={() => setActiveProductSearch(index)}
+                                  onBlur={() =>
+                                    setTimeout(() => setActiveProductSearch((prev) => (prev === index ? null : prev)), 150)
+                                  }
+                                  onChange={(event) =>
+                                    updateSaleItemRow(index, {
+                                      searchName: event.target.value,
                                     })
-                                  ) : (
-                                    <p className="empty-state">Nenhum produto encontrado. Tente por medida, SKU ou número.</p>
-                                  )}
-                                </div>
-                              )}
-                            </>
+                                  }
+                                  placeholder="Nome ou SKU"
+                                  autoComplete="off"
+                                  onKeyDown={handleProductSearchKeyDown}
+                                />
+                                {activeProductSearch === index && (
+                                  <div className="search-dropdown">
+                                    {productSearchLoading && activeProductSearch === index && (
+                                      <p className="dropdown-note">Buscando no estoque...</p>
+                                    )}
+                                    {suggestions.length ? (
+                                      suggestions.map((stock) => {
+                                        const suggestionReserved = reservedByEditingSale(stock.id)
+                                        const suggestionAvailable = stock.quantity + suggestionReserved
+                                        return (
+                                          <button
+                                            type="button"
+                                            key={stock.id}
+                                            disabled={suggestionAvailable <= 0}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            onClick={() => selectStock(stock)}
+                                          >
+                                            <strong>{stock.name}</strong>
+                                            <span>
+                                              {suggestionAvailable} em estoque · SKU {stock.sku}
+                                            </span>
+                                          </button>
+                                        )
+                                      })
+                                    ) : (
+                                      <p className="empty-state">Nenhum produto encontrado. Tente por medida, SKU ou número.</p>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="sale-item-fields">
+                          <label>
+                            Quantidade
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={item.quantity > 0 ? String(item.quantity) : ''}
+                              onChange={(event) => {
+                                const digits = formatDigits(event.target.value)
+                                updateSaleItemRow(index, {
+                                  quantity: digits ? Number(digits) : 0,
+                                })
+                              }}
+                              onBlur={() => {
+                                if (!item.quantity || item.quantity < 1) {
+                                  updateSaleItemRow(index, { quantity: 1 })
+                                }
+                              }}
+                              placeholder="0"
+                            />
+                            {isCustomItem ? (
+                              <span className="input-hint">Sem controle de estoque</span>
+                            ) : (
+                              <span className="input-hint">Disponível: {availableQuantity}</span>
+                            )}
+                          </label>
+                          <label>
+                            Preço unitário (R$)
+                            <NumericFormat
+                              value={item.unitPrice === 0 ? '' : item.unitPrice}
+                              thousandSeparator="."
+                              decimalSeparator=","
+                              decimalScale={2}
+                              fixedDecimalScale
+                              allowNegative={false}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              onValueChange={({ floatValue }) => {
+                                updateSaleItemRow(index, {
+                                  unitPrice: floatValue ?? 0,
+                                })
+                              }}
+                            />
+                          </label>
+                          <label>
+                            Desconto por unidade (R$)
+                            <NumericFormat
+                              value={item.discount === 0 ? '' : item.discount}
+                              thousandSeparator="."
+                              decimalSeparator=","
+                              decimalScale={2}
+                              fixedDecimalScale
+                              allowNegative={false}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              onValueChange={({ floatValue }) =>
+                                updateSaleItemRow(index, {
+                                  discount: floatValue ?? 0,
+                                })
+                              }
+                            />
+                          </label>
+                          {saleForm.items.length > 1 && (
+                            <div className="sale-item-action">
+                              <button
+                                type="button"
+                                className="ghost danger"
+                                onClick={() => removeSaleItemRow(index)}
+                                disabled={saleModalLoading}
+                              >
+                                Remover
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
-                      <div className="sale-item-fields">
-                        <label>
-                          Quantidade
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            value={item.quantity > 0 ? String(item.quantity) : ''}
-                            onChange={(event) => {
-                              const digits = formatDigits(event.target.value)
-                              updateSaleItemRow(index, {
-                                quantity: digits ? Number(digits) : 0,
-                              })
-                            }}
-                            onBlur={() => {
-                              if (!item.quantity || item.quantity < 1) {
-                                updateSaleItemRow(index, { quantity: 1 })
-                              }
-                            }}
-                            placeholder="0"
-                          />
-                          {isCustomItem ? (
-                            <span className="input-hint">Sem controle de estoque</span>
-                          ) : (
-                            <span className="input-hint">Disponível: {availableQuantity}</span>
-                          )}
-                        </label>
-                        <label>
-                          Preço unitário (R$)
-                          <NumericFormat
-                            value={item.unitPrice === 0 ? '' : item.unitPrice}
-                            thousandSeparator="."
-                            decimalSeparator=","
-                            decimalScale={2}
-                            fixedDecimalScale
-                            allowNegative={false}
-                            inputMode="decimal"
-                            placeholder="0,00"
-                            onValueChange={({ floatValue }) => {
-                              updateSaleItemRow(index, {
-                                unitPrice: floatValue ?? 0,
-                              })
-                            }}
-                          />
-                        </label>
-                        <label>
-                          Desconto por unidade (R$)
-                          <NumericFormat
-                            value={item.discount === 0 ? '' : item.discount}
-                            thousandSeparator="."
-                            decimalSeparator=","
-                            decimalScale={2}
-                            fixedDecimalScale
-                            allowNegative={false}
-                            inputMode="decimal"
-                            placeholder="0,00"
-                            onValueChange={({ floatValue }) =>
-                              updateSaleItemRow(index, {
-                                discount: floatValue ?? 0,
-                              })
-                            }
-                          />
-                        </label>
-                        {saleForm.items.length > 1 && (
-                          <div className="sale-item-action">
-                            <button
-                              type="button"
-                              className="ghost danger"
-                              onClick={() => removeSaleItemRow(index)}
-                              disabled={saleModalLoading}
-                            >
-                              Remover
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                    )
+                  })}
+                </div>
+  
+                <div className="sale-details-panel sale-section">
+                  <div className="sale-items-head">
+                    <div>
+                      <p className="form-title">Entrega e valores</p>
+                      <span className="sale-section-note">Data combinada com o cliente, desconto e observações do pedido.</span>
                     </div>
-                  )
-                })}
-              </div>
-
-              <div className="sale-details-panel sale-section">
-                <div className="sale-items-head">
-                  <div>
-                    <p className="form-title">Entrega e valores</p>
-                    <span className="sale-section-note">Data combinada com o cliente, desconto e observações do pedido.</span>
                   </div>
-                </div>
-                <div className="sale-details-body">
-                  <div className="sale-details-grid">
-                    <label>
-                      Data de entrega
-                      <input
-                        type="date"
-                        value={saleForm.deliveryDate}
-                        onChange={(event) =>
-                          setSaleForm((prev) => ({
-                            ...prev,
-                            deliveryDate: event.target.value,
-                          }))
-                        }
-                        required
-                      />
-                    </label>
-                    <label>
-                      Desconto total (R$)
-                      <NumericFormat
-                        value={saleForm.discount === 0 ? '' : saleForm.discount}
-                        thousandSeparator="."
-                        decimalSeparator=","
-                        decimalScale={2}
-                        fixedDecimalScale
-                        allowNegative={false}
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        onValueChange={({ floatValue }) =>
-                          setSaleForm((prev) => ({
-                            ...prev,
-                            discount: floatValue ?? 0,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="sale-note-field">
-                      Observações
-                      <textarea
-                        value={saleForm.note}
-                        onChange={(event) => setSaleForm((prev) => ({ ...prev, note: event.target.value }))}
-                        rows={2}
-                        placeholder="Entrega, montagem, referência..."
-                      />
-                    </label>
-                  </div>
-                  <div className="sale-summary">
-                    <p>
-                      Subtotal <strong>{formatCurrency(saleSubtotal)}</strong>
-                    </p>
-                    <p>
-                      Desconto <strong>-{formatCurrency(normalizedDiscount)}</strong>
-                    </p>
-                    <p className="sale-total">
-                      Total <strong>{formatCurrency(saleTotal)}</strong>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="sale-payments-stack sale-section">
-                <div className="sale-items-head">
-                  <div>
-                    <p className="form-title">Formas de pagamento</p>
-                    <span className="sale-section-note">A soma precisa fechar com o total do pedido.</span>
-                  </div>
-                  <button type="button" className="ghost" onClick={addPaymentRow} disabled={saleModalLoading}>
-                    Adicionar pagamento
-                  </button>
-                </div>
-                {saleForm.payments.map((payment, index) => (
-                  <div className="payment-row" key={payment.id}>
-                    <label>
-                      Método
-                      <select
-                        value={payment.method}
-                        onChange={(event) =>
-                          updatePaymentRow(index, { method: event.target.value as PaymentMethod })
-                        }
-                      >
-                        {paymentMethods.map((method) => (
-                          <option key={method} value={method}>
-                            {method}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Valor (R$)
-                      <NumericFormat
-                        value={payment.amount === 0 ? '' : payment.amount}
-                        thousandSeparator="."
-                        decimalSeparator=","
-                        decimalScale={2}
-                        fixedDecimalScale
-                        allowNegative={false}
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        readOnly={payment.method === 'Semanal na loja'}
-                        onValueChange={({ floatValue }) => {
-                          if (payment.method === 'Semanal na loja') return
-                          updatePaymentRow(index, {
-                            amount: floatValue ?? 0,
-                          })
-                        }}
-                      />
-                    </label>
-                    {payment.method === 'Semanal na loja' && (
-                      <>
-                        <label>
-                          Semanas
-                          <input
-                            type="number"
-                            min={1}
-                            value={payment.weeklyWeeks ?? 1}
-                            onChange={(event) =>
-                              updatePaymentRow(index, { weeklyWeeks: Number(event.target.value) })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Valor semanal (R$)
-                          <NumericFormat
-                            value={payment.weeklyAmount === 0 ? '' : payment.weeklyAmount}
-                            thousandSeparator="."
-                            decimalSeparator=","
-                            decimalScale={2}
-                            fixedDecimalScale
-                            allowNegative={false}
-                            inputMode="decimal"
-                            placeholder="0,00"
-                            onValueChange={({ floatValue }) =>
-                              updatePaymentRow(index, {
-                                weeklyAmount: floatValue ?? 0,
-                              })
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-                    {payment.method === 'Cartão de crédito' && (
+                  <div className="sale-details-body">
+                    <div className="sale-details-grid">
                       <label>
-                        Parcelas
+                        Data de entrega
                         <input
-                          type="number"
-                          min={1}
-                          value={payment.installments}
+                          type="date"
+                          value={saleForm.deliveryDate}
                           onChange={(event) =>
-                            updatePaymentRow(index, { installments: Number(event.target.value) })
+                            setSaleForm((prev) => ({
+                              ...prev,
+                              deliveryDate: event.target.value,
+                            }))
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        Desconto total (R$)
+                        <NumericFormat
+                          value={saleForm.discount === 0 ? '' : saleForm.discount}
+                          thousandSeparator="."
+                          decimalSeparator=","
+                          decimalScale={2}
+                          fixedDecimalScale
+                          allowNegative={false}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          onValueChange={({ floatValue }) =>
+                            setSaleForm((prev) => ({
+                              ...prev,
+                              discount: floatValue ?? 0,
+                            }))
                           }
                         />
                       </label>
-                    )}
-                    {saleForm.payments.length > 1 && (
-                      <button
-                        type="button"
-                        className="ghost danger"
-                        onClick={() => removePaymentRow(index)}
-                        disabled={saleModalLoading}
-                      >
-                        Remover
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <p className={`payment-balance ${paymentBalanced ? 'ok' : 'warn'}`}>
-                  Valor total: {formatCurrency(saleTotal)} · Recebimentos:{' '}
-                  <strong>
-                    {paymentBalanced
-                      ? 'Conferido'
-                      : `${paymentDiff > 0 ? 'Faltam' : 'Sobram'} ${formatCurrency(Math.abs(paymentDiff))}`}
-                  </strong>
-                </p>
-              </div>
-              {editingSale && (
-                <div className="sale-receipt sale-section">
-                  <p className="form-title">Comprovante de pagamento</p>
-                  {saleReceiptLoading && <p className="sale-meta mini">Carregando comprovante...</p>}
-                  {!saleReceiptLoading && saleReceiptImages.length === 0 && (
-                    <p className="sale-meta mini">Nenhum comprovante anexado.</p>
-                  )}
-                  {!saleReceiptLoading && saleReceiptImages.length > 0 && (
-                    <div className="sale-receipt-preview">
-                      {saleReceiptImages.map((image, index) => (
-                        <button
-                          type="button"
-                          className="receipt-preview-button"
-                          onClick={() => {
-                            setReceiptPreviewUrl(image)
-                            setReceiptPreviewOpen(true)
-                          }}
-                          aria-label={`Abrir comprovante ${index + 1}`}
-                          key={`${editingSale.id}-receipt-${index}`}
-                        >
-                          <img src={image} alt={`Comprovante ${editingSale.id} ${index + 1}`} />
-                        </button>
-                      ))}
-                      <div className="sale-receipt-actions">
-                        <label
-                          className="ghost sale-receipt-upload"
-                          htmlFor={`receipt-${editingSale.backendId ?? editingSale.id}`}
-                        >
-                          Adicionar mais
-                        </label>
-                        {editingSale.backendId && (
-                          <button
-                            type="button"
-                            className="ghost danger"
-                            onClick={() => handleRemovePaymentReceipt(editingSale.backendId!)}
-                          >
-                            Remover todos
-                          </button>
-                        )}
-                      </div>
+                      <label className="sale-note-field">
+                        Observações
+                        <textarea
+                          value={saleForm.note}
+                          onChange={(event) => setSaleForm((prev) => ({ ...prev, note: event.target.value }))}
+                          rows={2}
+                          placeholder="Entrega, montagem, referência..."
+                        />
+                      </label>
                     </div>
-                  )}
-                  {editingSale.backendId ? (
-                    <>
-                      {!saleReceiptLoading && saleReceiptImages.length === 0 && (
-                        <label
-                          className="ghost sale-receipt-upload"
-                          htmlFor={`receipt-${editingSale.backendId}`}
+                    <div className="sale-summary">
+                      <p>
+                        Subtotal <strong>{formatCurrency(saleSubtotal)}</strong>
+                      </p>
+                      <p>
+                        Desconto <strong>-{formatCurrency(normalizedDiscount)}</strong>
+                      </p>
+                      <p className="sale-total">
+                        Total <strong>{formatCurrency(saleTotal)}</strong>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="sale-payments-stack sale-section">
+                  <div className="sale-items-head">
+                    <div>
+                      <p className="form-title">Formas de pagamento</p>
+                      <span className="sale-section-note">A soma precisa fechar com o total do pedido.</span>
+                    </div>
+                    <button type="button" className="ghost" onClick={addPaymentRow} disabled={saleModalLoading}>
+                      Adicionar pagamento
+                    </button>
+                  </div>
+                  {saleForm.payments.map((payment, index) => (
+                    <div className="payment-row" key={payment.id}>
+                      <label>
+                        Método
+                        <select
+                          value={payment.method}
+                          onChange={(event) =>
+                            updatePaymentRow(index, { method: event.target.value as PaymentMethod })
+                          }
                         >
-                          Adicionar comprovantes
+                          {paymentMethods.map((method) => (
+                            <option key={method} value={method}>
+                              {method}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Valor (R$)
+                        <NumericFormat
+                          value={payment.amount === 0 ? '' : payment.amount}
+                          thousandSeparator="."
+                          decimalSeparator=","
+                          decimalScale={2}
+                          fixedDecimalScale
+                          allowNegative={false}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          readOnly={payment.method === 'Semanal na loja'}
+                          onValueChange={({ floatValue }) => {
+                            if (payment.method === 'Semanal na loja') return
+                            updatePaymentRow(index, {
+                              amount: floatValue ?? 0,
+                            })
+                          }}
+                        />
+                      </label>
+                      {payment.method === 'Semanal na loja' && (
+                        <>
+                          <label>
+                            Semanas
+                            <input
+                              type="number"
+                              min={1}
+                              value={payment.weeklyWeeks ?? 1}
+                              onChange={(event) =>
+                                updatePaymentRow(index, { weeklyWeeks: Number(event.target.value) })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Valor semanal (R$)
+                            <NumericFormat
+                              value={payment.weeklyAmount === 0 ? '' : payment.weeklyAmount}
+                              thousandSeparator="."
+                              decimalSeparator=","
+                              decimalScale={2}
+                              fixedDecimalScale
+                              allowNegative={false}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              onValueChange={({ floatValue }) =>
+                                updatePaymentRow(index, {
+                                  weeklyAmount: floatValue ?? 0,
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
+                      {payment.method === 'Cartão de crédito' && (
+                        <label>
+                          Parcelas
+                          <input
+                            type="number"
+                            min={1}
+                            value={payment.installments}
+                            onChange={(event) =>
+                              updatePaymentRow(index, { installments: Number(event.target.value) })
+                            }
+                          />
                         </label>
                       )}
-                      <input
-                        id={`receipt-${editingSale.backendId}`}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={(event) => handlePaymentReceiptUpload(editingSale.backendId!, event)}
-                      />
-                    </>
-                  ) : (
-                    <p className="sale-note warn">Comprovante indisponível para esta venda.</p>
-                  )}
+                      {saleForm.payments.length > 1 && (
+                        <button
+                          type="button"
+                          className="ghost danger"
+                          onClick={() => removePaymentRow(index)}
+                          disabled={saleModalLoading}
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <p className={`payment-balance ${paymentBalanced ? 'ok' : 'warn'}`}>
+                    Valor total: {formatCurrency(saleTotal)} · Recebimentos:{' '}
+                    <strong>
+                      {paymentBalanced
+                        ? 'Conferido'
+                        : `${paymentDiff > 0 ? 'Faltam' : 'Sobram'} ${formatCurrency(Math.abs(paymentDiff))}`}
+                    </strong>
+                  </p>
                 </div>
-              )}
+                {editingSale && (
+                  <div className="sale-receipt sale-section">
+                    <p className="form-title">Comprovante de pagamento</p>
+                    {saleReceiptLoading && <p className="sale-meta mini">Carregando comprovante...</p>}
+                    {!saleReceiptLoading && saleReceiptImages.length === 0 && (
+                      <p className="sale-meta mini">Nenhum comprovante anexado.</p>
+                    )}
+                    {!saleReceiptLoading && saleReceiptImages.length > 0 && (
+                      <div className="sale-receipt-preview">
+                        {saleReceiptImages.map((image, index) => (
+                          <button
+                            type="button"
+                            className="receipt-preview-button"
+                            onClick={() => {
+                              setReceiptPreviewUrl(image)
+                              setReceiptPreviewOpen(true)
+                            }}
+                            aria-label={`Abrir comprovante ${index + 1}`}
+                            key={`${editingSale.id}-receipt-${index}`}
+                          >
+                            <img src={image} alt={`Comprovante ${editingSale.id} ${index + 1}`} />
+                          </button>
+                        ))}
+                        <div className="sale-receipt-actions">
+                          <label
+                            className="ghost sale-receipt-upload"
+                            htmlFor={`receipt-${editingSale.backendId ?? editingSale.id}`}
+                          >
+                            Adicionar mais
+                          </label>
+                          {editingSale.backendId && (
+                            <button
+                              type="button"
+                              className="ghost danger"
+                              onClick={() => handleRemovePaymentReceipt(editingSale.backendId!)}
+                            >
+                              Remover todos
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {editingSale.backendId ? (
+                      <>
+                        {!saleReceiptLoading && saleReceiptImages.length === 0 && (
+                          <label
+                            className="ghost sale-receipt-upload"
+                            htmlFor={`receipt-${editingSale.backendId}`}
+                          >
+                            Adicionar comprovantes
+                          </label>
+                        )}
+                        <input
+                          id={`receipt-${editingSale.backendId}`}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(event) => handlePaymentReceiptUpload(editingSale.backendId!, event)}
+                        />
+                      </>
+                    ) : (
+                      <p className="sale-note warn">Comprovante indisponível para esta venda.</p>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="modal-actions">
                 <button type="button" className="ghost" onClick={closeSaleModal}>
                   Cancelar

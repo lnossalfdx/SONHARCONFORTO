@@ -4849,14 +4849,17 @@ body {
   gap: 12px;
 }
 
+/* Cabecalho e rodape sao irmaos fixos do corpo rolavel: nada de sticky,
+   entao nao existe faixa por onde o conteudo possa vazar por cima. */
 .modal.sale-modal {
   box-sizing: border-box;
   width: min(1040px, 100%);
   max-width: 100%;
   max-height: 94vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 
 .modal.sale-modal * {
@@ -4937,22 +4940,23 @@ body {
   grid-column: 1 / -1;
 }
 
-/* O cabecalho precisa cobrir tambem o padding do modal, senao o conteudo
-   rolado aparece na faixa acima dele. Fundo opaco pelo mesmo motivo. */
 .modal.sale-modal .section-head {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin: -22px -22px 2px;
-  padding: 18px 22px 14px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 16px 22px;
   background: #ffffff;
   border-bottom: 1px solid #e6edf7;
-  border-radius: 18px 18px 0 0;
-  align-items: flex-start;
+}
+
+.sale-modal-title {
+  min-width: 0;
 }
 
 .sale-modal-head h2 {
-  font-size: clamp(20px, 1.7vw, 26px);
+  font-size: clamp(19px, 1.5vw, 24px);
   margin: 2px 0 0;
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -4962,34 +4966,90 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
+  margin: 0 0 0 auto;
 }
 
 .sale-modal-summary-line span {
   border: 1px solid #e1e9f5;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   background: #f8fbff;
   color: #52627f;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.sale-modal-summary-line .strong {
+  background: #eef7ff;
+  border-color: #cfe6fb;
+  color: #14213d;
+}
+
+.sale-modal-summary-line .ok {
+  background: #f0fbf3;
+  border-color: #cfeeda;
+  color: #2c8f4c;
+}
+
+.sale-modal-summary-line .warn {
+  background: #fff8ec;
+  border-color: #f4e2c2;
+  color: #b57500;
+}
+
+.sale-modal-close {
+  flex: 0 0 auto;
+}
+
+.sale-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(180deg, #f7faff 0%, #ffffff 220px);
 }
 
 .sale-modal .modal-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  margin: 4px -22px -22px;
-  padding: 14px 22px 20px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 22px;
   background: #ffffff;
   border-top: 1px solid #e6edf7;
-  border-radius: 0 0 18px 18px;
 }
 
 /* --- Secoes do modal de pedido --- */
 
+/* flex-wrap herdado de .simple-form quebraria a coluna em duas agora que a
+   altura e limitada: o rodape ia parar na lateral do corpo. */
+.sale-modal .simple-form.sale-editor-form {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 0;
+}
+
 .sale-modal .simple-form {
-  gap: 14px;
+  flex-wrap: nowrap;
+}
+
+/* Dicas de duas linhas ("Sem controle de estoque") invadiam o campo acima. */
+.sale-modal .sale-item-fields {
+  grid-template-columns: minmax(122px, 0.6fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) auto;
+}
+
+.sale-modal .sale-item-fields label {
+  padding-bottom: 28px;
+}
+
+.sale-modal .sale-item-fields .input-hint {
+  line-height: 1.15;
 }
 
 .sale-modal .sale-section {
