@@ -405,6 +405,35 @@ const toSaleItemsPayload = (saleId: string, items: SaleItemInput[]) =>
     discount: item.discount ?? 0,
   }))
 
+const customItemKey = (item: { customName?: string | null; customSku?: string | null; unitPrice: number; discount?: number | null }) =>
+  [
+    (item.customName ?? '').trim().toLowerCase(),
+    (item.customSku ?? '').trim().toLowerCase(),
+    Number(item.unitPrice).toFixed(2),
+    Number(item.discount ?? 0).toFixed(2),
+  ].join('|')
+
+// Mantém aprovados os itens personalizados que já passaram pelo administrador,
+// para que editar observação/pagamento/entrega não exija nova aprovação.
+const resolveApprovalFlags = (items: SaleItemInput[], existingItems: any[]) => {
+  const approved = new Map<string, number>()
+  for (const item of existingItems) {
+    if (item.productId || item.requiresApproval) continue
+    const key = customItemKey(item)
+    approved.set(key, (approved.get(key) ?? 0) + 1)
+  }
+  return items.map((item) => {
+    if (item.productId) return false
+    const key = customItemKey(item)
+    const available = approved.get(key) ?? 0
+    if (available > 0) {
+      approved.set(key, available - 1)
+      return false
+    }
+    return true
+  })
+}
+
 const toPaymentPayload = (saleId: string, payments: z.infer<typeof paymentSchema>[]) =>
   payments.map((payment) => ({
     saleId,
@@ -850,7 +879,8 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
     customName: item.customName,
     customSku: item.customSku,
   }))
-  const requiresApproval = payload.items.some((item) => !item.productId)
+  const approvalFlags = resolveApprovalFlags(payload.items, saleItems)
+  const requiresApproval = approvalFlags.some(Boolean)
   try {
     if (isDelivered) {
       await updateDeliveredProductQuantities(releaseItems, payload.items, productsMap, request.user?.id, sale.publicId ?? id)
@@ -864,9 +894,10 @@ router.put('/:id', roleGuard('admin'), async (request, response) => {
   await supabase.from('sale_items').delete().eq('saleId', id)
   await supabase.from('sale_payments').delete().eq('saleId', id)
 
-  const saleItemsPayload = toSaleItemsPayload(id, payload.items).map((item) =>
-    isDelivered ? { ...item, requiresApproval: false } : item,
-  )
+  const saleItemsPayload = toSaleItemsPayload(id, payload.items).map((item, index) => ({
+    ...item,
+    requiresApproval: isDelivered ? false : approvalFlags[index],
+  }))
   const { error: itemsError } = await supabase.from('sale_items').insert(saleItemsPayload)
   if (itemsError) {
     return response.status(400).json({ message: itemsError.message })

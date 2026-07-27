@@ -295,7 +295,8 @@ const COMPANY_INFO = {
 }
 
 const RECEIPT_TERMS = [
-  'Garantia de 1 ano, válida somente com este pedido de venda e etiqueta intacta.',
+  'Garantia de 1 ano*, válida somente com este pedido de venda e etiqueta intacta.',
+  '*Base box e baú possuem garantia de 4 meses.',
   'Qualquer problema deve ser comunicado diretamente à loja.',
   'Defeitos só serão atendidos após análise técnica da fábrica (prazo de até 30 dias úteis).',
   'Não há troca por gosto, conforto, adaptação ou arrependimento.', 
@@ -405,6 +406,22 @@ const formatDateInput = (date: Date) => {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+// Datas de calendário (AAAA-MM-DD) são gravadas como meia-noite UTC; `new Date(valor)`
+// as converteria para o fuso local e voltaria um dia. Aqui o dia é lido como está.
+const parseCalendarDate = (value: string) => {
+  if (!value) return null
+  const [datePart] = value.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day)
+}
+
+const formatCalendarDate = (value: string, options?: Intl.DateTimeFormatOptions) => {
+  const date = parseCalendarDate(value)
+  if (!date) return '-'
+  return date.toLocaleDateString('pt-BR', options)
 }
 
 const normalizeDateToIso = (value: string) => {
@@ -649,12 +666,12 @@ const createSaleFormState = (clientsList: Client[]): SaleFormState => {
     ],
     discount: 0,
     note: '',
-    deliveryDate: new Date().toISOString().slice(0, 10),
+    deliveryDate: formatDateInput(new Date()),
   }
 }
 
 const createSaleFormFromSale = (sale: Sale, stockItems: StockItem[]): SaleFormState => {
-  const defaultDate = new Date().toISOString().slice(0, 10)
+  const defaultDate = formatDateInput(new Date())
   return {
     clientId: sale.clientId,
     items: sale.items.map((item) => {
@@ -1598,9 +1615,10 @@ useEffect(() => {
     }
   }, [authToken])
 
-  const fetchSalesPageFromApi = useCallback(async () => {
+  const fetchSalesPageFromApi = useCallback(async (options?: { silent?: boolean }) => {
     if (!authToken) return
-    setSalesPageLoading(true)
+    const silent = options?.silent === true
+    if (!silent) setSalesPageLoading(true)
     setSalesPageError(null)
     try {
       const params = new URLSearchParams()
@@ -1637,7 +1655,7 @@ useEffect(() => {
       setSalesPageItems([])
       setSalesPageTotal(0)
     } finally {
-      setSalesPageLoading(false)
+      if (!silent) setSalesPageLoading(false)
     }
   }, [
     authToken,
@@ -1649,6 +1667,21 @@ useEffect(() => {
     saleMinValue,
     salesPage,
   ])
+
+  // A página de vendas usa a lista paginada; atualizar só `sales` deixava o card
+  // desatualizado até recarregar a página.
+  const applySaleUpdate = useCallback((saleId: string, updatedSale: Sale) => {
+    setSales((prev) => prev.map((item) => (item.id === saleId ? updatedSale : item)))
+    setSalesPageItems((prev) => prev.map((item) => (item.id === saleId ? updatedSale : item)))
+  }, [])
+
+  // `silent` mantém os cards visíveis enquanto a lista é revalidada em segundo plano.
+  const refreshSalesLists = useCallback(
+    async (options?: { silent?: boolean }) => {
+      await Promise.all([fetchSalesFromApi(), fetchSalesPageFromApi(options)])
+    },
+    [fetchSalesFromApi, fetchSalesPageFromApi],
+  )
 
   useEffect(() => {
     if (!authToken || !viewingSleepLab) {
@@ -2149,6 +2182,7 @@ useEffect(() => {
       return updated
     })
     setSales((prev) => prev.filter((sale) => sale.clientId !== clientId))
+    setSalesPageItems((prev) => prev.filter((sale) => sale.clientId !== clientId))
   }
 const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
 const [stockMovementsLoading, setStockMovementsLoading] = useState(false)
@@ -2641,7 +2675,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     date.setDate(1)
     date.setMonth(date.getMonth() + deliveryMonthOffset)
     date.setDate(date.getDate() + index)
-    return date.toISOString().slice(0, 10)
+    return formatDateInput(date)
   })
 
   const searchResults: SearchResult[] = normalizedSearch
@@ -3348,7 +3382,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         .filter(Boolean) as PaymentOverride[]
       updatePaymentOverridesForSale(createdSale.id, overrides.length ? overrides : null)
       if (editingSale) {
-        setSales((prev) => prev.map((item) => (item.id === editingSale.id ? createdSale : item)))
+        applySaleUpdate(editingSale.id, createdSale)
         setEditingSale(null)
       } else {
         setSales((prev) => [createdSale, ...prev])
@@ -3363,7 +3397,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       }
       await fetchStockFromApi(stockCacheKey)
       await fetchStockMovementsFromApi()
-      await fetchSalesFromApi()
+      await refreshSalesLists({ silent: Boolean(editingSale) })
       setSaleForm(createSaleFormState(clients))
       setSaleDraftId(generateSaleId())
       closeSaleModal()
@@ -3392,7 +3426,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         throw new Error('Não foi possível confirmar a entrega.')
       }
       const updatedSale = normalizeSale(await response.json())
-      setSales((prev) => prev.map((item) => (item.id === saleId ? updatedSale : item)))
+      applySaleUpdate(saleId, updatedSale)
       setStockItems((prev) =>
         prev.map((item) => {
           const reservedQty = sale.items
@@ -3403,6 +3437,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         }),
       )
       await fetchStockFromApi(stockCacheKey)
+      await refreshSalesLists({ silent: true })
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao confirmar entrega.')
@@ -3432,10 +3467,10 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         throw new Error('Não foi possível cancelar o pedido.')
       }
       const updatedSale = normalizeSale(await response.json())
-      setSales((prev) => prev.map((item) => (item.id === sale.id ? updatedSale : item)))
+      applySaleUpdate(sale.id, updatedSale)
       setConfirmDeliveryState((prev) => (prev && prev.sale.id === sale.id ? null : prev))
       await fetchStockFromApi(stockCacheKey)
-      await fetchSalesFromApi()
+      await refreshSalesLists({ silent: true })
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao cancelar o pedido.')
@@ -3462,8 +3497,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       }
       if (!response.ok) {
         if (data?.message === 'Este pedido já foi aprovado.') {
-          window.alert(data.message)
-          await fetchSalesFromApi()
+          await refreshSalesLists({ silent: true })
           return
         }
         const message =
@@ -3474,14 +3508,11 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       const hasSalePayload =
         salePayload && (salePayload.id || salePayload.publicId || salePayload.clientId || salePayload.items)
       if (hasSalePayload) {
-        const updatedSale = normalizeSale(salePayload)
-        setSales((prev) => prev.map((item) => (item.id === sale.id ? updatedSale : item)))
+        applySaleUpdate(sale.id, normalizeSale(salePayload))
+        void refreshSalesLists({ silent: true })
       } else {
-        await fetchSalesFromApi()
+        await refreshSalesLists({ silent: true })
       }
-      const successMessage =
-        typeof data?.message === 'string' ? data.message : 'Pedido aprovado com sucesso.'
-      window.alert(successMessage)
     } catch (error) {
       console.error(error)
       window.alert(error instanceof Error ? error.message : 'Erro ao aprovar pedido.')
@@ -3513,6 +3544,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       })
       updatePaymentOverridesForSale(saleId, nextOverrides)
       setSales((prev) => prev.map((sale) => (sale.id === saleId ? applyPaymentOverrides(sale) : sale)))
+      setSalesPageItems((prev) => prev.map((sale) => (sale.id === saleId ? applyPaymentOverrides(sale) : sale)))
     },
     [paymentOverrides, updatePaymentOverridesForSale],
   )
@@ -4167,7 +4199,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                       <div className="delivery-head">
                         <strong>{client?.name ?? 'Cliente'}</strong>
                         <span className="delivery-date">
-                          {new Date(delivery.deliveryDate).toLocaleDateString('pt-BR')}
+                          {formatCalendarDate(delivery.deliveryDate)}
                         </span>
                       </div>
                       <p>{itemNames.length ? itemNames.join(' • ') : 'Itens pendentes de vínculo'}</p>
@@ -4596,8 +4628,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
             </p>
             <p>Data: {new Date(sale.createdAt).toLocaleDateString('pt-BR')}</p>
             <p>
-              Entrega prevista:{' '}
-              {sale.deliveryDate ? new Date(sale.deliveryDate).toLocaleDateString('pt-BR') : '-'}
+              Entrega prevista: {formatCalendarDate(sale.deliveryDate)}
             </p>
             <span className="receipt-copy-label">{copyLabel}</span>
           </div>
@@ -4728,7 +4759,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
           <aside className="receipt-benefits">
             <div>
               <span>✓</span>
-              <strong>Garantia de 1 ano</strong>
+              <strong>Garantia de 1 ano*</strong>
             </div>
             <div>
               <span>▣</span>
@@ -5020,7 +5051,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
                         <span>{totalUnits} {totalUnits === 1 ? 'item' : 'itens'}</span>
                         <strong>{formatCurrency(sale.value)}</strong>
                         {sale.deliveryDate && (
-                          <span>Entrega {new Date(sale.deliveryDate).toLocaleDateString('pt-BR')}</span>
+                          <span>Entrega {formatCalendarDate(sale.deliveryDate)}</span>
                         )}
                       </div>
                       <div className="sale-items-list">
@@ -5127,7 +5158,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         return acc
       }, {})
     const monthLabel = calendarRange[0]
-      ? new Date(calendarRange[0]).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      ? formatCalendarDate(calendarRange[0], { month: 'long', year: 'numeric' })
       : ''
     const visibleDeliveryCount = Object.values(deliveriesByDate).reduce((sum, daySales) => sum + daySales.length, 0)
     const pendingDeliveryCount = Object.values(deliveriesByDate)
@@ -5188,7 +5219,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
               return (
                 <div className={`calendar-day ${deliveries.length ? 'has-deliveries' : 'is-empty'}`} key={date}>
                   <div className="day-label">
-                    <span>{new Date(date).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</span>
+                    <span>{formatCalendarDate(date, { weekday: 'long', day: '2-digit', month: 'long' })}</span>
                     {deliveries.length > 0 && (
                       <strong>
                         {deliveries.length} {deliveries.length === 1 ? 'entrega' : 'entregas'}
