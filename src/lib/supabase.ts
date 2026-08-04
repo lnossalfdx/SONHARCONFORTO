@@ -31,7 +31,13 @@ export const getSupabaseClient = async () => {
   if (!pending) {
     pending = resolveConfig()
       .then(({ url, anonKey }) => {
-        client = createClient(url, anonKey)
+        client = createClient(url, anonKey, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+          },
+        })
         pending = null
         return client
       })
@@ -41,4 +47,29 @@ export const getSupabaseClient = async () => {
       })
   }
   return pending
+}
+
+// Lê o token direto do cliente Supabase (que renova sozinho quando está expirado),
+// em vez de confiar em uma cópia guardada no estado do React.
+export const getAccessToken = async (): Promise<string | null> => {
+  try {
+    const supabaseClient = await getSupabaseClient()
+    const { data } = await supabaseClient.auth.getSession()
+    return data.session?.access_token ?? null
+  } catch (error) {
+    console.error('Falha ao obter sessão do Supabase:', error)
+    return null
+  }
+}
+
+export const refreshAccessToken = async (): Promise<string | null> => {
+  try {
+    const supabaseClient = await getSupabaseClient()
+    const { data, error } = await supabaseClient.auth.refreshSession()
+    if (error) return null
+    return data.session?.access_token ?? null
+  } catch (error) {
+    console.error('Falha ao renovar sessão do Supabase:', error)
+    return null
+  }
 }

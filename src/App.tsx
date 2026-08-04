@@ -7,6 +7,7 @@ import './App.css'
 import './mobile.css'
 import { API_BASE_URL } from './lib/api.ts'
 import { getSupabaseClient } from './lib/supabase.ts'
+import { apiFetch, setUnauthorizedHandler } from './lib/apiClient.ts'
 import instagramLogo from '../instagram.png'
 import instagramQr from '../instagram-qr.png'
 import googleMapsLogo from '../google-maps.png'
@@ -999,6 +1000,13 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
       .catch((error) => console.error('Falha ao finalizar sessão Supabase:', error))
   }, [])
 
+  useEffect(() => {
+    setUnauthorizedHandler(forceLogout)
+    return () => setUnauthorizedHandler(null)
+  }, [forceLogout])
+
+  // O apiFetch sobrescreve o Authorization com o token atual do Supabase;
+  // este cabeçalho serve apenas de fallback.
   const getAuthHeaders = (withJson = true) => {
     const headers: Record<string, string> = {}
     if (withJson) headers['Content-Type'] = 'application/json'
@@ -1027,7 +1035,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
       params.set('offset', '0')
       params.set('search', query)
       setProductSearchLoading(true)
-      fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+      apiFetch(`${API_BASE_URL}/stock?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
         .then((response) => {
@@ -1180,7 +1188,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
     if (!authToken) return []
     setClientsLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/clients`, {
+      const response = await apiFetch(`${API_BASE_URL}/clients`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1223,7 +1231,7 @@ const [expenseSubmitError, setExpenseSubmitError] = useState<string | null>(null
       if (clientCityFilter !== 'all') params.set('city', clientCityFilter)
       if (clientFilter === 'withSales') params.set('sales', 'with')
       if (clientFilter === 'withoutSales') params.set('sales', 'without')
-      const response = await fetch(`${API_BASE_URL}/clients?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/clients?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1303,7 +1311,7 @@ useEffect(() => {
       params.set('paginated', '1')
       params.set('limit', ITEMS_PER_PAGE.toString())
       params.set('offset', '0')
-      const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1354,7 +1362,7 @@ useEffect(() => {
       if (minValueNumber !== null && !Number.isNaN(minValueNumber)) params.set('minPrice', String(minValueNumber))
       const maxValueNumber = stockMaxValue ? Number(stockMaxValue) : null
       if (maxValueNumber !== null && !Number.isNaN(maxValueNumber)) params.set('maxPrice', String(maxValueNumber))
-      const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1381,7 +1389,7 @@ useEffect(() => {
   const fetchStockSummaryFromApi = useCallback(async () => {
     if (!authToken) return
     try {
-      const response = await fetch(`${API_BASE_URL}/stock/summary`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock/summary`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) throw new Error('Não foi possível carregar o resumo do estoque.')
@@ -1401,7 +1409,7 @@ useEffect(() => {
 
   const fetchAllStockFromApi = useCallback(async (): Promise<StockItem[]> => {
     if (!authToken) return []
-    const response = await fetch(`${API_BASE_URL}/stock`, {
+    const response = await apiFetch(`${API_BASE_URL}/stock`, {
       headers: getAuthHeaders(false),
     })
     if (!response.ok) {
@@ -1440,7 +1448,7 @@ useEffect(() => {
         params.set('limit', ITEMS_PER_PAGE.toString())
         params.set('offset', '0')
         params.set('search', normalizedSearch)
-        const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+        const response = await apiFetch(`${API_BASE_URL}/stock?${params.toString()}`, {
           headers: getAuthHeaders(false),
         })
         if (!response.ok) throw new Error('Não foi possível pesquisar produtos.')
@@ -1470,7 +1478,7 @@ useEffect(() => {
     try {
       const params = new URLSearchParams()
       params.set('ids', uniqueIds.join(','))
-      const response = await fetch(`${API_BASE_URL}/stock?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1497,7 +1505,7 @@ useEffect(() => {
       if (movementTypeFilter !== 'all') params.set('type', movementTypeFilter)
       if (movementDateStart) params.set('start', getLocalStartOfDayIso(movementDateStart))
       if (movementDateEnd) params.set('end', getLocalEndOfDayIso(movementDateEnd))
-      const response = await fetch(`${API_BASE_URL}/stock/movements?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock/movements?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1584,7 +1592,7 @@ useEffect(() => {
     setSalesLoading(true)
     setSalesError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/sales`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1605,7 +1613,7 @@ useEffect(() => {
   const fetchNextSaleIdFromApi = useCallback(async () => {
     if (!authToken) return null
     try {
-      const response = await fetch(`${API_BASE_URL}/sales/next-id`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/next-id`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) return null
@@ -1637,7 +1645,7 @@ useEffect(() => {
       if (salePaymentFilter !== 'all') params.set('method', salePaymentFilter)
       const minValueNumber = saleMinValue ? Number(saleMinValue) : null
       if (minValueNumber && !Number.isNaN(minValueNumber)) params.set('minValue', String(minValueNumber))
-      const response = await fetch(`${API_BASE_URL}/sales?${params.toString()}`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales?${params.toString()}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1799,7 +1807,7 @@ useEffect(() => {
     setUsersLoading(true)
     setUsersError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/users`, {
+      const response = await apiFetch(`${API_BASE_URL}/users`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1838,7 +1846,7 @@ useEffect(() => {
       if (endIso) params.append('end', endIso)
       if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
       const query = params.toString()
-      const response = await fetch(`${API_BASE_URL}/finance/summary${query ? `?${query}` : ''}`, {
+      const response = await apiFetch(`${API_BASE_URL}/finance/summary${query ? `?${query}` : ''}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1897,7 +1905,7 @@ useEffect(() => {
       if (endIso) params.append('end', endIso)
       if (financePaymentFilter !== 'all') params.append('method', financePaymentFilter)
       const query = params.toString()
-      const response = await fetch(`${API_BASE_URL}/finance/expenses${query ? `?${query}` : ''}`, {
+      const response = await apiFetch(`${API_BASE_URL}/finance/expenses${query ? `?${query}` : ''}`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1939,7 +1947,7 @@ useEffect(() => {
     setMonthlyGoalLoading(true)
     setMonthlyGoalError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/goal`, {
+      const response = await apiFetch(`${API_BASE_URL}/finance/goal`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -1983,7 +1991,7 @@ useEffect(() => {
     setAssistancesLoading(true)
     setAssistancesError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/assistances`, {
+      const response = await apiFetch(`${API_BASE_URL}/assistances`, {
         headers: getAuthHeaders(false),
       })
       if (!response.ok) {
@@ -2028,7 +2036,7 @@ useEffect(() => {
     setSessionChecking(true)
     const fetchSession = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        const response = await apiFetch(`${API_BASE_URL}/auth/me`, {
           headers: { Authorization: `Bearer ${authToken}` },
         })
         if (!response.ok) {
@@ -2131,7 +2139,7 @@ useEffect(() => {
       addressCity: data.addressCity.trim(),
       addressNote: data.addressNote.trim(),
     }
-    const response = await fetch(`${API_BASE_URL}/clients`, {
+    const response = await apiFetch(`${API_BASE_URL}/clients`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload),
@@ -2157,7 +2165,7 @@ useEffect(() => {
       addressCity: data.addressCity.trim(),
       addressNote: data.addressNote.trim(),
     }
-    const response = await fetch(`${API_BASE_URL}/clients/${clientId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/clients/${clientId}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload),
@@ -2171,7 +2179,7 @@ useEffect(() => {
 
   const deleteClientRecord = async (clientId: string) => {
     if (!authToken) throw new Error('Sessão expirada. Faça login novamente.')
-    const response = await fetch(`${API_BASE_URL}/clients/${clientId}`, {
+    const response = await apiFetch(`${API_BASE_URL}/clients/${clientId}`, {
       method: 'DELETE',
       headers: getAuthHeaders(false),
     })
@@ -2356,7 +2364,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setEditProductLoading(true)
     setEditProductError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/stock/${editProductModal.id}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock/${editProductModal.id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -2621,7 +2629,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
 
     setSaleReceiptLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/sales/${saleId}/receipt`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/${saleId}/receipt`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ imageData: images }),
@@ -2646,7 +2654,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
   const handleRemovePaymentReceipt = async (saleId: string) => {
     try {
       setSaleReceiptLoading(true)
-      const response = await fetch(`${API_BASE_URL}/sales/${saleId}/receipt`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/${saleId}/receipt`, {
         method: 'DELETE',
         headers: getAuthHeaders(false),
       })
@@ -2945,7 +2953,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       return
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/stock/${productId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/stock/${productId}`, {
         method: 'DELETE',
         headers: getAuthHeaders(false),
       })
@@ -3063,7 +3071,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       if (saleBackendId) {
         setSaleReceiptLoading(true)
         try {
-          const response = await fetch(`${API_BASE_URL}/sales/${saleBackendId}`, {
+          const response = await apiFetch(`${API_BASE_URL}/sales/${saleBackendId}`, {
             headers: getAuthHeaders(false),
           })
           if (response.ok) {
@@ -3352,7 +3360,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
       const endpoint = editingSale
         ? `${API_BASE_URL}/sales/${editingSale.backendId ?? editingSale.id}`
         : `${API_BASE_URL}/sales`
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method: editingSale ? 'PUT' : 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload),
@@ -3420,7 +3428,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     }
     const backendId = sale.backendId ?? saleId
     try {
-      const response = await fetch(`${API_BASE_URL}/sales/${backendId}/confirm-delivery`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/${backendId}/confirm-delivery`, {
         method: 'POST',
         headers: getAuthHeaders(false),
       })
@@ -3461,7 +3469,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     if (!confirm) return
     const backendId = sale.backendId ?? sale.id
     try {
-      const response = await fetch(`${API_BASE_URL}/sales/${backendId}/cancel`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/${backendId}/cancel`, {
         method: 'POST',
         headers: getAuthHeaders(false),
       })
@@ -3487,7 +3495,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     }
     const backendId = sale.backendId ?? sale.id
     try {
-      const response = await fetch(`${API_BASE_URL}/sales/${backendId}/approve`, {
+      const response = await apiFetch(`${API_BASE_URL}/sales/${backendId}/approve`, {
         method: 'POST',
         headers: getAuthHeaders(false),
       })
@@ -3570,7 +3578,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     }
     setExpenseSubmitLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/expenses`, {
+      const response = await apiFetch(`${API_BASE_URL}/finance/expenses`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -3640,7 +3648,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
           quantity: amount,
           imageUrl: inventoryForm.newProductImage || undefined,
         }
-        const response = await fetch(`${API_BASE_URL}/stock`, {
+        const response = await apiFetch(`${API_BASE_URL}/stock`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload),
@@ -3667,7 +3675,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         if (inventoryForm.type === 'saida' && product.quantity < amount) {
           throw new Error('Quantidade insuficiente em estoque para saída.')
         }
-        const response = await fetch(`${API_BASE_URL}/stock/${inventoryForm.productId}/movements`, {
+        const response = await apiFetch(`${API_BASE_URL}/stock/${inventoryForm.productId}/movements`, {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify({
@@ -3756,7 +3764,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setMonthlyGoalSaving(true)
     setMonthlyGoalError(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/goal`, {
+      const response = await apiFetch(`${API_BASE_URL}/finance/goal`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ target: monthlyGoalFormValue }),
@@ -3815,7 +3823,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
         photos: assistanceForm.photos.length > 0 ? assistanceForm.photos : undefined,
         ...(editingAssistance ? { status: editingAssistance.status } : {}),
       }
-      const response = await fetch(
+      const response = await apiFetch(
         editingAssistance
           ? `${API_BASE_URL}/assistances/${editingAssistance.id}`
           : `${API_BASE_URL}/assistances`,
@@ -3859,7 +3867,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     if (!assistanceId || !isAdmin) return
     setAssistanceStatusLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/assistances/${assistanceId}/status`, {
+      const response = await apiFetch(`${API_BASE_URL}/assistances/${assistanceId}/status`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ status: 'concluida' }),
@@ -3893,7 +3901,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setUserInviteTempPassword(null)
     setUserManagerNotice(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/invite`, {
+      const response = await apiFetch(`${API_BASE_URL}/auth/invite`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
@@ -3929,7 +3937,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setUserActionError(null)
     setUserManagerNotice(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/users/${userId}`, {
         method: 'DELETE',
         headers: getAuthHeaders(false),
       })
@@ -3956,7 +3964,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setUserInviteTempPassword(null)
     setUserManagerNotice(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${userId}/reset-password`, {
+      const response = await apiFetch(`${API_BASE_URL}/users/${userId}/reset-password`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(customPassword ? { password: customPassword } : {}),
@@ -4004,7 +4012,7 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     setUserActionError(null)
     setUserManagerNotice(null)
     try {
-      const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+      const response = await apiFetch(`${API_BASE_URL}/users/${userId}`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({ active: !target.active }),
