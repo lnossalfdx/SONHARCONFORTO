@@ -4041,13 +4041,16 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     const nowDate = new Date()
     const currentMonth = nowDate.getMonth()
     const currentYear = nowDate.getFullYear()
-    const isSameMonth = (sale: Sale) => {
+    // A meta soma uma janela de dois meses: o mes anterior mais o mes atual.
+    const goalWindowStart = new Date(currentYear, currentMonth - 1, 1)
+    const goalWindowEnd = new Date(currentYear, currentMonth + 1, 1)
+    const isInGoalWindow = (sale: Sale) => {
       const saleDate = new Date(sale.createdAt)
-      return saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear
+      return saleDate >= goalWindowStart && saleDate < goalWindowEnd
     }
     const monthlyOrdersAll = sales.filter((sale) => {
       if (sale.status === 'cancelada') return false
-      return isSameMonth(sale)
+      return isInGoalWindow(sale)
     })
     const monthlyRevenue = monthlyOrdersAll.reduce((sum, sale) => {
       const paymentsTotal = sale.payments.reduce((sub, payment) => sub + payment.amount, 0)
@@ -4060,6 +4063,8 @@ const focusInventoryPanel = (product?: StockItem | string) => {
     const goalMonthLabel = new Date(currentYear, currentMonth).toLocaleDateString('pt-BR', {
       month: 'long',
     })
+    const goalPreviousMonthLabel = goalWindowStart.toLocaleDateString('pt-BR', { month: 'long' })
+    const goalRangeLabel = `${goalPreviousMonthLabel} + ${goalMonthLabel}`
 
     const commissionDay = new Date()
     commissionDay.setDate(commissionDay.getDate() + commissionOffset)
@@ -4225,9 +4230,9 @@ const focusInventoryPanel = (product?: StockItem | string) => {
           <div className="goal-progress">
             <div className="section-head goal-head">
               <div>
-                <p className="eyebrow">Meta do mês</p>
+                <p className="eyebrow">Meta acumulada</p>
                 <h2>
-                  {goalMonthLabel.charAt(0).toUpperCase() + goalMonthLabel.slice(1)} · {currentYear}
+                  {goalRangeLabel.charAt(0).toUpperCase() + goalRangeLabel.slice(1)} · {currentYear}
                 </h2>
               </div>
               <div className="goal-head-actions">

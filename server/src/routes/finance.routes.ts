@@ -155,10 +155,12 @@ router.get('/goal', async (_request, response) => {
       .single()
     goal = upsertResult.data ?? { year, month, target: carriedTarget }
   }
+  // Progresso soma o mes anterior junto com o atual, igual ao painel.
+  const progressStart = new Date(year, month - 2, 1)
   const { data: salesSum } = await supabase
     .from('sales')
     .select('value')
-    .gte('createdAt', start.toISOString())
+    .gte('createdAt', progressStart.toISOString())
     .lt('createdAt', end.toISOString())
     .eq('status', 'entregue')
     .eq('requiresApproval', false)
