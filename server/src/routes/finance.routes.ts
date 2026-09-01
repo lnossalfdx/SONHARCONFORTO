@@ -137,13 +137,23 @@ router.get('/goal', async (_request, response) => {
     .eq('month', month)
     .maybeSingle()
   let goal = existingGoal
-  if (!goal) {
-    const insertResult = await supabase
+  // Mes sem linha ou com meta zerada: herda a ultima meta cadastrada com valor.
+  if (!goal || !goal.target) {
+    const { data: previousGoals } = await supabase
       .from('monthly_goals')
-      .insert({ year, month, target: 0 })
+      .select('target')
+      .or(`year.lt.${year},and(year.eq.${year},month.lt.${month})`)
+      .gt('target', 0)
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
+      .limit(1)
+    const carriedTarget = previousGoals?.[0]?.target ?? 0
+    const upsertResult = await supabase
+      .from('monthly_goals')
+      .upsert({ year, month, target: carriedTarget }, { onConflict: 'year,month' })
       .select('year, month, target')
       .single()
-    goal = insertResult.data ?? { year, month, target: 0 }
+    goal = upsertResult.data ?? { year, month, target: carriedTarget }
   }
   const { data: salesSum } = await supabase
     .from('sales')
